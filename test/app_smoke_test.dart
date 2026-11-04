@@ -111,7 +111,8 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pump();
     await client.tick(500);
-    expect(find.text('A little momentum.'), findsOneWidget);
+    expect(find.text('A little momentum.'), findsNothing);
+    expect(find.byTooltip('New conversation with Scout'), findsOneWidget);
     expect(find.text('Connect'), findsNothing);
     expect(find.text('Setup code'), findsNothing);
     expect(find.text('Wake Mukai'), findsNothing);

@@ -187,7 +187,8 @@ void main() {
       );
       await waitFor(tester, () => find.byType(HomeShell).evaluate().isNotEmpty);
       expect((await secureStore.read())!.sessionToken, saved.sessionToken);
-      expect(find.text('A little momentum.'), findsOneWidget);
+      expect(find.text('A little momentum.'), findsNothing);
+      expect(find.byTooltip('New conversation with Nova'), findsOneWidget);
       final session = MukaiScope.sessionOf(
         tester.element(find.byType(HomeShell)),
       );

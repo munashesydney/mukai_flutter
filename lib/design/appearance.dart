@@ -57,35 +57,54 @@ class MukaiPreferences {
   const MukaiPreferences({
     this.mode = ColorMode.light,
     this.theme = MukaiThemeId.ocean,
+    this.minimalism = true,
   });
 
   final ColorMode mode;
   final MukaiThemeId theme;
+  final bool minimalism;
 
   /// Same key the desktop app uses, so a future shared store lines up.
   static const String storageKey = 'mukai.appearance.v1';
 
   static const MukaiPreferences defaults = MukaiPreferences();
 
-  MukaiPreferences copyWith({ColorMode? mode, MukaiThemeId? theme}) =>
-      MukaiPreferences(mode: mode ?? this.mode, theme: theme ?? this.theme);
+  MukaiPreferences copyWith({
+    ColorMode? mode,
+    MukaiThemeId? theme,
+    bool? minimalism,
+  }) => MukaiPreferences(
+    mode: mode ?? this.mode,
+    theme: theme ?? this.theme,
+    minimalism: minimalism ?? this.minimalism,
+  );
 
-  Map<String, String> toJson() => {'mode': mode.id, 'theme': theme.id};
+  Map<String, dynamic> toJson() => {
+    'mode': mode.id,
+    'theme': theme.id,
+    'minimalism': minimalism,
+  };
 
   factory MukaiPreferences.fromJson(Map<String, dynamic>? json) {
     if (json == null) return defaults;
     return MukaiPreferences(
       mode: ColorMode.fromId(json['mode'] as String?),
       theme: MukaiThemeId.fromId(json['theme'] as String?),
+      minimalism: json['minimalism'] is bool
+          ? json['minimalism'] as bool
+          : true,
     );
   }
 
   @override
   bool operator ==(Object other) =>
-      other is MukaiPreferences && other.mode == mode && other.theme == theme;
+      other is MukaiPreferences &&
+      other.mode == mode &&
+      other.theme == theme &&
+      other.minimalism == minimalism;
 
   @override
-  int get hashCode => Object.hash(mode, theme);
+  int get hashCode => Object.hash(mode, theme, minimalism);
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +681,13 @@ class AppearanceController extends ChangeNotifier {
   void setTheme(MukaiThemeId theme) {
     if (theme == preferences.theme) return;
     preferences = preferences.copyWith(theme: theme);
+    notifyListeners();
+    _persist();
+  }
+
+  void setMinimalism(bool minimalism) {
+    if (minimalism == preferences.minimalism) return;
+    preferences = preferences.copyWith(minimalism: minimalism);
     notifyListeners();
     _persist();
   }

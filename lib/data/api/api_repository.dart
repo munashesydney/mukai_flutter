@@ -195,9 +195,9 @@ class ApiRepository implements MukaiRepository {
       .where((c) => c.kind == 'private' && c.botId == botId)
       .toList();
   @override
-  List<Conversation> recentConversations({int limit = 6}) => allConversations
+  List<Conversation> recentConversations({int? limit = 6}) => allConversations
       .where((c) => c.kind == 'private' || c.kind == 'bot')
-      .take(limit)
+      .take(limit ?? allConversations.length)
       .toList();
   String root(String botId, String? conversationId) => conversationId == null
       ? '/bots/${encoded(botId)}'

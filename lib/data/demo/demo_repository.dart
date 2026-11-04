@@ -46,7 +46,7 @@ class MukaiDemoRepository implements MukaiRepository {
       DemoFixtures.conversationsFor(botId);
 
   @override
-  List<Conversation> recentConversations({int limit = 6}) {
+  List<Conversation> recentConversations({int? limit = 6}) {
     final List<Conversation> all =
         <Conversation>[
           for (final MukaiBot bot in bots)
@@ -55,7 +55,7 @@ class MukaiDemoRepository implements MukaiRepository {
           (Conversation a, Conversation b) =>
               b.updatedAt.compareTo(a.updatedAt),
         );
-    return all.length <= limit ? all : all.sublist(0, limit);
+    return limit == null || all.length <= limit ? all : all.sublist(0, limit);
   }
 
   @override

@@ -83,7 +83,10 @@ stopping server work. Drafts are scoped to conversations, and uncertain sends
 retain their request ID so retrying does not create a second request.
 
 Appearance opens below the top safe area, supports drag-to-dismiss, and has an
-explicit close button.
+explicit close button. Its default-on **Minimalism** switch shows a compact bot
+list: tap a bot to reveal its three latest chats, then load three more at a time.
+The sidebar destination is **Bots** in this mode. Switch Minimalism off to restore
+the original **Workspace** landing page. The choice is saved locally.
 
 ## Verify
 

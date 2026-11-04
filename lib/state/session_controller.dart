@@ -421,6 +421,10 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Workspace-wide recents, as shown on the home screen.
   List<Conversation> get recents => _recents;
+
+  /// All available private/bot chats for paginated bot groups.
+  List<Conversation> get botConversations =>
+      _repository.recentConversations(limit: null);
   ChatActivity get activity => _activity;
   bool get loadingThreads => _loading;
   bool get responding =>

@@ -22,86 +22,103 @@ class AppearanceSheet extends StatelessWidget {
     final TextTheme text = Theme.of(context).textTheme;
     final AppearanceController appearance = MukaiScope.appearanceOf(context);
 
-    return DraggableScrollableSheet(
-      initialChildSize: .85,
-      minChildSize: .35,
-      maxChildSize: 1,
-      expand: false,
-      snap: true,
-      snapSizes: const [.35, .85, 1],
-      builder: (context, scrollController) => SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          controller: scrollController,
-          padding: const EdgeInsets.only(bottom: MukaiSpace.xxl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Stack(
-                children: [
-                  const SheetGrabber(label: 'Appearance'),
-                  Positioned(
-                    right: 8,
-                    top: 14,
-                    child: MukaiIconButton(
-                      icon: Icons.close_rounded,
-                      tooltip: 'Close appearance',
-                      border: false,
-                      onTap: () => Navigator.pop(context),
-                    ),
-                  ),
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  MukaiSpace.screen,
-                  MukaiSpace.xl,
-                  MukaiSpace.screen,
-                  MukaiSpace.sm,
-                ),
-                child: Text('Mode', style: text.titleSmall),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: MukaiSpace.screen,
-                ),
-                child: _ModeSelector(
-                  mode: appearance.preferences.mode,
-                  onChanged: appearance.setMode,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  MukaiSpace.screen,
-                  MukaiSpace.xl,
-                  MukaiSpace.screen,
-                  MukaiSpace.sm,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    Text('Theme', style: text.titleSmall),
-                    const Spacer(),
-                    Text(
-                      colors.themeId.label,
-                      style: text.labelMedium?.copyWith(color: colors.textSoft),
+    return ListenableBuilder(
+      listenable: appearance,
+      builder: (context, _) => DraggableScrollableSheet(
+        initialChildSize: .85,
+        minChildSize: .35,
+        maxChildSize: 1,
+        expand: false,
+        snap: true,
+        snapSizes: const [.35, .85, 1],
+        builder: (context, scrollController) => SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            controller: scrollController,
+            padding: const EdgeInsets.only(bottom: MukaiSpace.xxl),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Stack(
+                  children: [
+                    const SheetGrabber(label: 'Appearance'),
+                    Positioned(
+                      right: 8,
+                      top: 14,
+                      child: MukaiIconButton(
+                        icon: Icons.close_rounded,
+                        tooltip: 'Close appearance',
+                        border: false,
+                        onTap: () => Navigator.pop(context),
+                      ),
                     ),
                   ],
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: MukaiSpace.screen,
-                ),
-                child: _ThemeGrid(
-                  selected: appearance.preferences.theme,
-                  brightness: colors.brightness,
-                  onSelect: (MukaiThemeId id) {
+                SwitchListTile.adaptive(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: MukaiSpace.screen,
+                  ),
+                  title: Text('Minimalism', style: text.titleSmall),
+                  subtitle: const Text('A simple bot list with recent chats.'),
+                  value: appearance.preferences.minimalism,
+                  onChanged: (value) {
                     Haptics.select();
-                    appearance.setTheme(id);
+                    appearance.setMinimalism(value);
                   },
                 ),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    MukaiSpace.screen,
+                    MukaiSpace.xl,
+                    MukaiSpace.screen,
+                    MukaiSpace.sm,
+                  ),
+                  child: Text('Mode', style: text.titleSmall),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: MukaiSpace.screen,
+                  ),
+                  child: _ModeSelector(
+                    mode: appearance.preferences.mode,
+                    onChanged: appearance.setMode,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    MukaiSpace.screen,
+                    MukaiSpace.xl,
+                    MukaiSpace.screen,
+                    MukaiSpace.sm,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Text('Theme', style: text.titleSmall),
+                      const Spacer(),
+                      Text(
+                        colors.themeId.label,
+                        style: text.labelMedium?.copyWith(
+                          color: colors.textSoft,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: MukaiSpace.screen,
+                  ),
+                  child: _ThemeGrid(
+                    selected: appearance.preferences.theme,
+                    brightness: colors.brightness,
+                    onSelect: (MukaiThemeId id) {
+                      Haptics.select();
+                      appearance.setTheme(id);
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

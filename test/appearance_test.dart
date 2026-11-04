@@ -67,12 +67,14 @@ void main() {
     test('defaults match the web client', () {
       expect(MukaiPreferences.defaults.mode, ColorMode.light);
       expect(MukaiPreferences.defaults.theme, MukaiThemeId.ocean);
+      expect(MukaiPreferences.defaults.minimalism, isTrue);
     });
 
     test('round-trips through json', () {
       const MukaiPreferences prefs = MukaiPreferences(
         mode: ColorMode.dark,
         theme: MukaiThemeId.iris,
+        minimalism: false,
       );
       expect(MukaiPreferences.fromJson(prefs.toJson()), prefs);
     });
@@ -86,6 +88,16 @@ void main() {
         }),
         MukaiPreferences.defaults,
       );
+    });
+
+    test('existing appearance settings enable minimalism on upgrade', () {
+      final prefs = MukaiPreferences.fromJson({
+        'mode': 'dark',
+        'theme': 'rose',
+      });
+      expect(prefs.minimalism, isTrue);
+      expect(prefs.copyWith(minimalism: false).theme, MukaiThemeId.rose);
+      expect(prefs.copyWith(minimalism: false).mode, ColorMode.dark);
     });
 
     test('uses the same storage key as the desktop app', () {
@@ -188,6 +200,35 @@ void main() {
         mukaiThemeOf(MukaiThemeId.ember).light.rail,
       );
     });
+
+    test(
+      'minimalism persists and restores without changing theme or mode',
+      () async {
+        final saved = <MukaiPreferences>[];
+        final controller = AppearanceController(
+          initial: const MukaiPreferences(
+            mode: ColorMode.dark,
+            theme: MukaiThemeId.iris,
+          ),
+          saver: (prefs) async => saved.add(prefs),
+        );
+        var notifications = 0;
+        controller.addListener(() => notifications++);
+        controller.setMinimalism(false);
+        controller.setMinimalism(false);
+        await Future<void>.delayed(Duration.zero);
+        expect(notifications, 1);
+        expect(saved, hasLength(1));
+        final restored = AppearanceController(
+          loader: () => MukaiPreferences.fromJson(saved.single.toJson()),
+        )..hydrate();
+        expect(restored.preferences.minimalism, isFalse);
+        expect(restored.preferences.mode, ColorMode.dark);
+        expect(restored.preferences.theme, MukaiThemeId.iris);
+        controller.dispose();
+        restored.dispose();
+      },
+    );
 
     test('cycleTheme walks the list and wraps around', () {
       final AppearanceController controller = AppearanceController(

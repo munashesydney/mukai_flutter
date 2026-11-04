@@ -28,7 +28,9 @@ Future<SessionController> open(WidgetTester tester, Widget child) async {
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  final appearance = AppearanceController();
+  final appearance = AppearanceController(
+    initial: const MukaiPreferences(minimalism: false),
+  );
   final session = SessionController(
     MukaiDemoRepository(
       latency: Duration.zero,

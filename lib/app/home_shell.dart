@@ -190,7 +190,10 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: MukaiScope.sessionOf(context),
+    listenable: Listenable.merge([
+      MukaiScope.sessionOf(context),
+      MukaiScope.appearanceOf(context),
+    ]),
     builder: (context, _) => _buildShell(context),
   );
 
@@ -263,6 +266,8 @@ class _HomeShellState extends State<HomeShell> {
                       children: <Widget>[
                         HomeScreen(
                           onOpenBot: (bot) => _openBot(bot),
+                          onNewConversation: (bot) =>
+                              _openBot(bot, fresh: true),
                           onOpenConversation: _openConversation,
                           onSwitchWorkspace: _switchWorkspace,
                           onOpenSettings: () => _destination(4),
@@ -322,6 +327,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Widget _sidebar(BuildContext context) {
+    final minimalism = MukaiScope.appearanceOf(context).preferences.minimalism;
     final colors = MukaiColors.of(context);
     final session = MukaiScope.sessionOf(context);
     return SafeArea(
@@ -389,7 +395,13 @@ class _HomeShellState extends State<HomeShell> {
                     ),
                     for (final (int index, String label, IconData icon)
                         in <(int, String, IconData)>[
-                          (0, 'Workspace', Icons.grid_view_rounded),
+                          (
+                            0,
+                            minimalism ? 'Bots' : 'Workspace',
+                            minimalism
+                                ? Icons.smart_toy_outlined
+                                : Icons.grid_view_rounded,
+                          ),
                           (1, 'Pursuits', Icons.track_changes_rounded),
                           (2, 'Spaces', Icons.layers_outlined),
                           if (session.updateCount > 0)

@@ -29,7 +29,9 @@ Future<SessionController> _openWorkspace(
   addTearDown(tester.view.resetPadding);
   addTearDown(tester.view.resetViewInsets);
 
-  final appearance = AppearanceController();
+  final appearance = AppearanceController(
+    initial: const MukaiPreferences(minimalism: false),
+  );
   final session = SessionController(
     MukaiDemoRepository(
       latency: Duration.zero,

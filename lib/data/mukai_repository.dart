@@ -14,8 +14,8 @@ abstract interface class MukaiRepository {
   List<Conversation> conversationsFor(String botId);
 
   /// Most recently touched conversations across the whole workspace, newest
-  /// first — what the home screen lists under "Bot conversations".
-  List<Conversation> recentConversations({int limit = 6});
+  /// first. A null limit returns all available private/bot conversations.
+  List<Conversation> recentConversations({int? limit = 6});
 
   /// Refetch the workspace-level lists. Allowed to fail; the UI shows a retry.
   Future<void> refresh();
