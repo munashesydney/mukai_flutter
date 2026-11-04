@@ -16,6 +16,12 @@ windows/
 android/
 test/widget_test.dart
 
+# Track the source app icons while keeping the generated iOS host ignored.
+!native/ios/
+native/ios/*
+!native/ios/AppIcon.appiconset/
+!native/ios/AppDelegate.swift
+
 # IDE
 .idea/
 .vscode/

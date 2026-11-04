@@ -246,6 +246,49 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+  testWidgets('stop button keeps the desktop accent colors in both modes', (
+    tester,
+  ) async {
+    var stopped = 0;
+    for (final brightness in Brightness.values) {
+      for (final theme in MukaiThemeId.values) {
+        final preferences = MukaiPreferences(theme: theme);
+        final colors = MukaiColors.from(preferences, brightness);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: mukaiTheme(preferences, brightness),
+            home: Scaffold(
+              body: MukaiComposer(
+                botName: 'Mukai',
+                responding: true,
+                onSend: (_) => fail('Stop must never send a message'),
+                onStop: () => stopped++,
+              ),
+            ),
+          ),
+        );
+        await frames(tester);
+        final stop = find.byTooltip('Stop response');
+        final button = tester.widget<AnimatedContainer>(
+          find.descendant(of: stop, matching: find.byType(AnimatedContainer)),
+        );
+        expect(
+          (button.decoration! as BoxDecoration).color,
+          colors.accentColor,
+          reason: '$theme $brightness',
+        );
+        expect(
+          tester.widget<Icon>(find.byIcon(Icons.stop_rounded)).color,
+          colors.textOnAccent,
+        );
+        await tester.tap(stop);
+        await frames(tester);
+      }
+    }
+    expect(stopped, Brightness.values.length * MukaiThemeId.values.length);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('fresh composer requests focus when its server load enables it', (
     tester,
   ) async {

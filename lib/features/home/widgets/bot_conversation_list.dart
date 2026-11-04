@@ -17,12 +17,18 @@ class BotConversationList extends StatefulWidget {
     required this.conversations,
     required this.onOpenConversation,
     required this.onNewConversation,
+    this.workingConversationIds = const {},
+    this.workingBotIds = const {},
+    this.activeConversationId,
   });
 
   final List<MukaiBot> bots;
   final List<Conversation> conversations;
   final ValueChanged<Conversation> onOpenConversation;
   final ValueChanged<MukaiBot> onNewConversation;
+  final Set<String> workingConversationIds;
+  final Set<String> workingBotIds;
+  final String? activeConversationId;
 
   @override
   State<BotConversationList> createState() => _BotConversationListState();
@@ -80,148 +86,113 @@ class _BotConversationListState extends State<BotConversationList> {
               final open = _expandedBot == bot.id;
               final chats = groups[bot.id] ?? const <Conversation>[];
               final count = _visibleCounts[bot.id] ?? _pageSize;
-              final remaining = chats.length - math.min(count, chats.length);
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Semantics(
-                          button: true,
-                          expanded: open,
-                          child: InkWell(
-                            key: ValueKey('bot-group-${bot.id}'),
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: () {
-                              Haptics.select();
-                              setState(
-                                () => _expandedBot = open ? null : bot.id,
-                              );
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 18,
-                              ),
-                              child: Row(
-                                children: [
-                                  GhostAvatar(
-                                    mascot: bot.mascot,
-                                    identity: bot.identity,
-                                    size: 56,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Icon(
-                                    open
-                                        ? Icons.keyboard_arrow_down_rounded
-                                        : Icons.chevron_right_rounded,
-                                    size: 22,
-                                    color: colors.textSoft,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      bot.name,
-                                      style: text.titleLarge,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+              bool working(Conversation chat) =>
+                  chat.isWorking ||
+                  widget.workingConversationIds.contains(chat.id);
+              final visibleChats = chats.indexed
+                  .where(
+                    (entry) =>
+                        entry.$1 < count ||
+                        working(entry.$2) ||
+                        entry.$2.id == widget.activeConversationId,
+                  )
+                  .map((entry) => entry.$2)
+                  .toList();
+              final botWorking =
+                  widget.workingBotIds.contains(bot.id) || chats.any(working);
+              final remaining = chats.length - visibleChats.length;
+              return Material(
+                type: MaterialType.transparency,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Semantics(
+                      button: true,
+                      expanded: open,
+                      child: InkWell(
+                        key: ValueKey('bot-group-${bot.id}'),
+                        borderRadius: BorderRadius.circular(10),
+                        splashFactory: InkRipple.splashFactory,
+                        splashColor: colors.accentColor.withValues(alpha: .16),
+                        highlightColor: colors.accentColor.withValues(
+                          alpha: .06,
+                        ),
+                        onTap: () {
+                          Haptics.select();
+                          setState(() => _expandedBot = open ? null : bot.id);
+                        },
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 18,
+                                ),
+                                child: Row(
+                                  children: [
+                                    GhostAvatar(
+                                      mascot: bot.mascot,
+                                      identity: bot.identity,
+                                      size: 56,
                                     ),
-                                  ),
-                                  if (bot.isMain) ...[
-                                    const SizedBox(width: 6),
-                                    Tooltip(
-                                      message: 'Main bot',
-                                      child: Icon(
-                                        Icons.star_rounded,
-                                        size: 17,
-                                        color: colors.textSoft,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        bot.name,
+                                        style: text.titleLarge,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
+                                    if (bot.isMain) ...[
+                                      const SizedBox(width: 6),
+                                      Tooltip(
+                                        message: 'Main bot',
+                                        child: Icon(
+                                          Icons.star_rounded,
+                                          size: 17,
+                                          color: colors.textSoft,
+                                        ),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      ),
-                      MukaiIconButton(
-                        icon: Icons.add_comment_outlined,
-                        tooltip: 'New conversation with ${bot.name}',
-                        border: false,
-                        size: 52,
-                        iconSize: 26,
-                        onTap: () => widget.onNewConversation(bot),
-                      ),
-                    ],
-                  ),
-                  if (open)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 36, bottom: 10),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border(
-                            left: BorderSide(color: colors.hairline),
-                          ),
-                        ),
-                        padding: const EdgeInsets.only(left: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (chats.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                child: Text(
-                                  'No conversations yet.',
-                                  style: text.bodySmall,
-                                ),
-                              ),
-                            for (final chat in chats.take(count))
-                              Semantics(
-                                button: true,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(8),
-                                  onTap: () => widget.onOpenConversation(chat),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 14,
+                            if (botWorking)
+                              const SizedBox.square(
+                                dimension: 52,
+                                child: Center(child: BouncingDots()),
+                              )
+                            else
+                              // The nested tap target wins the gesture so creating
+                              // a chat never also toggles the bot's recent chats.
+                              Tooltip(
+                                message: 'New conversation with ${bot.name}',
+                                child: Semantics(
+                                  button: true,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(10),
+                                    splashFactory: InkRipple.splashFactory,
+                                    splashColor: colors.accentColor.withValues(
+                                      alpha: .16,
                                     ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            chat.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: text.bodyMedium,
-                                          ),
+                                    highlightColor: colors.accentColor
+                                        .withValues(alpha: .06),
+                                    onTap: () {
+                                      Haptics.select();
+                                      widget.onNewConversation(bot);
+                                    },
+                                    child: SizedBox.square(
+                                      dimension: 52,
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.add_comment_outlined,
+                                          size: 26,
+                                          color: colors.textSecondary,
                                         ),
-                                        const SizedBox(width: 12),
-                                        Text(
-                                          Format.relativeTime(chat.updatedAt),
-                                          style: text.labelSmall?.copyWith(
-                                            color: colors.textSoft,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (remaining > 0)
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: TextButton(
-                                  onPressed: () => setState(() {
-                                    _visibleCounts[bot.id] = count + _pageSize;
-                                  }),
-                                  child: Text(
-                                    'Load ${math.min(_pageSize, remaining)} more',
-                                    style: text.bodySmall?.copyWith(
-                                      color: colors.textMuted,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -230,7 +201,90 @@ class _BotConversationListState extends State<BotConversationList> {
                         ),
                       ),
                     ),
-                ],
+                    if (open)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 36, bottom: 10),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              left: BorderSide(color: colors.hairline),
+                            ),
+                          ),
+                          padding: const EdgeInsets.only(left: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (chats.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  child: Text(
+                                    'No conversations yet.',
+                                    style: text.bodySmall,
+                                  ),
+                                ),
+                              for (final chat in visibleChats)
+                                Semantics(
+                                  button: true,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () =>
+                                        widget.onOpenConversation(chat),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 14,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              chat.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: text.bodyMedium,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          if (working(chat))
+                                            const BouncingDots()
+                                          else
+                                            Text(
+                                              Format.relativeTime(
+                                                chat.updatedAt,
+                                              ),
+                                              style: text.labelSmall?.copyWith(
+                                                color: colors.textSoft,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (remaining > 0)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton(
+                                    onPressed: () => setState(() {
+                                      _visibleCounts[bot.id] =
+                                          count + _pageSize;
+                                    }),
+                                    child: Text(
+                                      'Load ${math.min(_pageSize, remaining)} more',
+                                      style: text.bodySmall?.copyWith(
+                                        color: colors.textMuted,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               );
             },
           ),

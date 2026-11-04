@@ -184,6 +184,7 @@ class ApiRepository implements MukaiRepository {
       botId: string(c['ownerBotId'], ids.firstOrNull ?? ''),
       botIds: ids,
       kind: string(c['kind'], 'private'),
+      isWorking: c['isWorking'] == true,
       description: string(c['description']),
       preview: string(c['description']),
       updatedAt: date(c['updatedAt']),

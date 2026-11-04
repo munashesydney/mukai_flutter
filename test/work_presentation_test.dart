@@ -232,11 +232,36 @@ void main() {
           {'id': 'answer', 'type': 'text', 'text': 'Here is the final answer.'},
         ],
         'activity': [
-          {'id': 'cmd1', 'tool': 'terminal', 'action': 'run', 'status': 'complete'},
-          {'id': 'cmd2', 'tool': 'terminal', 'action': 'run', 'status': 'complete'},
-          {'id': 'img1', 'tool': 'media', 'action': 'view_image', 'status': 'complete'},
-          {'id': 'img2', 'tool': 'media', 'action': 'view_image', 'status': 'complete'},
-          {'id': 'cmd3', 'tool': 'terminal', 'action': 'run', 'status': 'complete'},
+          {
+            'id': 'cmd1',
+            'tool': 'terminal',
+            'action': 'run',
+            'status': 'complete',
+          },
+          {
+            'id': 'cmd2',
+            'tool': 'terminal',
+            'action': 'run',
+            'status': 'complete',
+          },
+          {
+            'id': 'img1',
+            'tool': 'media',
+            'action': 'view_image',
+            'status': 'complete',
+          },
+          {
+            'id': 'img2',
+            'tool': 'media',
+            'action': 'view_image',
+            'status': 'complete',
+          },
+          {
+            'id': 'cmd3',
+            'tool': 'terminal',
+            'action': 'run',
+            'status': 'complete',
+          },
         ],
       }, 'history');
       await tester.pumpWidget(
@@ -430,38 +455,108 @@ void main() {
     },
   );
 
-  testWidgets('compaction state is shown without opening the work transcript', (
-    tester,
-  ) async {
-    ChatMessage message(String state) => ChatMessage(
-      id: 'compaction',
-      fromUser: false,
-      at: DateTime.now(),
-      streaming: state == 'compacting',
-      blocks: [
-        CompactionBlock(
-          id: 'c',
-          state: state,
-          before: 64000,
-          after: state == 'complete' ? 16000 : null,
+  testWidgets(
+    'compaction stays inside the work dropdown as a desktop divider',
+    (tester) async {
+      ChatMessage message(String state) => ChatMessage(
+        id: 'compaction',
+        fromUser: false,
+        at: DateTime.now(),
+        streaming: state == 'compacting',
+        blocks: [
+          const TextBlock('Before compaction', commentary: true),
+          CompactionBlock(
+            id: 'c',
+            state: state,
+            before: 64000,
+            after: state == 'complete' ? 16000 : null,
+          ),
+          const TextBlock('After compaction', commentary: true),
+          if (state != 'compacting') const TextBlock('Final answer'),
+        ],
+      );
+      await tester.pumpWidget(
+        app(MessageView(message: message('compacting'), bots: const [])),
+      );
+      await frames(tester);
+      expect(find.text('Compacting context…'), findsNothing);
+      await tester.tap(find.textContaining('Working'));
+      await frames(tester);
+      expect(find.text('Compacting context…'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      await tester.pumpWidget(
+        app(MessageView(message: message('complete'), bots: const [])),
+      );
+      await frames(tester);
+      expect(find.text('Context compacted'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(Divider), findsNWidgets(2));
+      expect(
+        find.byTooltip(
+          '64000 → 16000 estimated context tokens. Original messages are kept.',
         ),
-      ],
-    );
-    await tester.pumpWidget(
-      app(MessageView(message: message('compacting'), bots: const [])),
-    );
-    await frames(tester);
-    expect(find.text('Compacting context…'), findsOneWidget);
-    await tester.pumpWidget(
-      app(MessageView(message: message('complete'), bots: const [])),
-    );
-    await frames(tester);
-    expect(find.text('Context compacted'), findsOneWidget);
-    await tester.tap(find.text('Worked'));
-    await frames(tester);
-    expect(find.textContaining('64000 → 16000'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(find.text('Before compaction')).dy,
+        lessThan(tester.getTopLeft(find.text('Context compacted')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('Context compacted')).dy,
+        lessThan(tester.getTopLeft(find.text('After compaction')).dy),
+      );
+      await tester.tap(find.text('Worked'));
+      await frames(tester);
+      expect(find.text('Context compacted'), findsNothing);
+      expect(find.text('Final answer'), findsOneWidget);
+      await tester.tap(find.text('Worked'));
+      await frames(tester);
+      expect(find.text('Context compacted'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'failed and interrupted compactions remain inside a compact transcript',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      for (final state in ['failed', 'interrupted']) {
+        final label = 'Context compaction $state';
+        await tester.pumpWidget(
+          app(
+            MediaQuery(
+              data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+              child: MessageView(
+                key: ValueKey(state),
+                message: ChatMessage(
+                  id: state,
+                  fromUser: false,
+                  at: DateTime.now(),
+                  blocks: [
+                    CompactionBlock(id: state, state: state, before: 64000),
+                  ],
+                ),
+                bots: const [],
+              ),
+            ),
+          ),
+        );
+        await frames(tester);
+        expect(find.text(label), findsNothing);
+        await tester.tap(find.text('Worked'));
+        await frames(tester);
+        expect(find.text(label), findsOneWidget);
+        expect(find.byType(Divider), findsNWidgets(2));
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Worked'));
+        await frames(tester);
+        expect(find.text(label), findsNothing);
+      }
+    },
+  );
 
   testWidgets(
     'RAM recovery uses scheduler state and never shows another conversation notice',

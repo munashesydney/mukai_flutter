@@ -266,6 +266,104 @@ void main() {
     },
   );
 
+  testWidgets(
+    'sidebar selects conversations and keeps the most recently opened first',
+    (tester) async {
+      final session = await _openWorkspace(tester);
+      final sidebar = find.byKey(const PageStorageKey('sidebar-scroll'));
+      Finder row(String id) => find.byKey(ValueKey('sidebar-conversation-$id'));
+      ListTile tile(String id) => tester.widget<ListTile>(
+        find.descendant(of: row(id), matching: find.byType(ListTile)),
+      );
+      Future<void> openSidebar() async {
+        await tester.tap(find.byTooltip('Open sidebar'));
+        await _tick(tester);
+      }
+
+      Future<void> selectChat(String id) async {
+        await tester.scrollUntilVisible(
+          row(id),
+          150,
+          scrollable: find.descendant(
+            of: sidebar,
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await _tick(tester);
+        await tester.tap(row(id));
+        await _tick(tester);
+      }
+
+      await openSidebar();
+      expect(find.text('Companions'), findsNothing);
+      expect(find.text('Conversations'), findsOneWidget);
+      expect(
+        find.descendant(of: sidebar, matching: find.text('Scout')),
+        findsNothing,
+      );
+      await selectChat('scout-week');
+      expect(session.conversationId, 'scout-week');
+      await openSidebar();
+      expect(session.sidebarConversations.first.id, 'scout-week');
+      expect(tile('scout-week').selected, isTrue);
+      expect(row('scout-week').hitTestable(), findsOneWidget);
+      await selectChat('scout-notes');
+      expect(session.conversationId, 'scout-notes');
+      await openSidebar();
+      expect(session.sidebarConversations.take(2).map((c) => c.id), [
+        'scout-notes',
+        'scout-week',
+      ]);
+      expect(tile('scout-notes').selected, isTrue);
+      expect(tile('scout-week').selected, isFalse);
+      expect(
+        tester.getTopLeft(row('scout-notes')).dy,
+        lessThan(tester.getTopLeft(row('scout-week')).dy),
+      );
+      await tester.tap(find.text('Workspace').last);
+      await _tick(tester);
+      await openSidebar();
+      expect(tile('scout-notes').selected, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'sidebar shows and clears running dots on the correct conversation',
+    (tester) async {
+      final session = await _openWorkspace(tester);
+      session.aiActivity = {
+        'running': [
+          {
+            'workspaceId': session.workspace.id,
+            'conversationId': 'scout-today',
+            'botId': 'scout',
+          },
+          {
+            'workspaceId': 'another-workspace',
+            'conversationId': 'nova-today',
+            'botId': 'nova',
+          },
+        ],
+      };
+      unawaited(session.loadRecents());
+      await _tick(tester);
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _tick(tester);
+      Finder indicator(String id) => find.descendant(
+        of: find.byKey(ValueKey('sidebar-conversation-$id')),
+        matching: find.byType(BouncingDots),
+      );
+      expect(indicator('scout-today'), findsOneWidget);
+      expect(indicator('nova-today'), findsNothing);
+      session.aiActivity = {};
+      unawaited(session.loadRecents());
+      await _tick(tester);
+      expect(indicator('scout-today'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('appearance sheet grabber is horizontally centered', (
     tester,
   ) async {

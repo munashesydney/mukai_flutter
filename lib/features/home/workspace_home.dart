@@ -177,6 +177,7 @@ class WorkspaceHome extends StatelessWidget {
                         context: context,
                         builder: (_) => WorkspaceSheet(
                           current: session.workspace,
+                          workingWorkspaceIds: session.workingWorkspaceIds,
                           others: const [],
                           onSelect: (_) {},
                           onCreate: () {},

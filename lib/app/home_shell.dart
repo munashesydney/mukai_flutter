@@ -26,6 +26,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   final _canvas = GlobalKey<SidebarCanvasState>();
+  final _sidebarScroll = ScrollController(keepScrollOffset: false);
   int _index = 0;
   MukaiBot? _bot;
   String? _conversationId;
@@ -38,6 +39,15 @@ class _HomeShellState extends State<HomeShell> {
   void _openSidebar() {
     FocusManager.instance.primaryFocus?.unfocus();
     _canvas.currentState?.open();
+    // Include new chats and changes made elsewhere when navigation opens.
+    final session = MukaiScope.sessionOf(context);
+    if (session.api != null) session.loadRecents();
+  }
+
+  @override
+  void dispose() {
+    _sidebarScroll.dispose();
+    super.dispose();
   }
 
   void _destination(int index) {
@@ -87,34 +97,42 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _switchWorkspace() async {
     final session = MukaiScope.sessionOf(context);
+    session.refreshNotices();
     await showMukaiSheet<void>(
       context: context,
-      builder: (context) => SingleChildScrollView(
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SheetGrabber(label: 'Your workspaces'),
-              for (final workspace in session.workspaces)
-                MukaiRow(
-                  title: workspace.name,
-                  subtitle: workspace.kind,
-                  selected: workspace.id == session.workspace.id,
-                  onTap: () async {
-                    Navigator.pop(context);
-                    _canvas.currentState?.close();
-                    await session.selectWorkspace(workspace.id);
-                    if (mounted) {
-                      setState(() {
-                        _bot = null;
-                        _index = 0;
-                      });
-                    }
-                  },
-                ),
-              const SizedBox(height: 20),
-            ],
+      builder: (context) => ListenableBuilder(
+        listenable: session,
+        builder: (context, _) => SingleChildScrollView(
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SheetGrabber(label: 'Your workspaces'),
+                for (final workspace in session.workspaces)
+                  MukaiRow(
+                    key: ValueKey('workspace-picker-${workspace.id}'),
+                    title: workspace.name,
+                    subtitle: workspace.kind,
+                    selected: workspace.id == session.workspace.id,
+                    trailing: session.workingWorkspaceIds.contains(workspace.id)
+                        ? const BouncingDots()
+                        : null,
+                    onTap: () async {
+                      Navigator.pop(context);
+                      _canvas.currentState?.close();
+                      await session.selectWorkspace(workspace.id);
+                      if (mounted) {
+                        setState(() {
+                          _bot = null;
+                          _index = 0;
+                        });
+                      }
+                    },
+                  ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -330,6 +348,9 @@ class _HomeShellState extends State<HomeShell> {
     final minimalism = MukaiScope.appearanceOf(context).preferences.minimalism;
     final colors = MukaiColors.of(context);
     final session = MukaiScope.sessionOf(context);
+    final conversations = session.sidebarConversations;
+    final workingConversations = session.workingConversationIds;
+    final activeConversationId = _bot == null ? null : session.conversationId;
     return SafeArea(
       child: Column(
         children: [
@@ -358,6 +379,7 @@ class _HomeShellState extends State<HomeShell> {
               children: [
                 ListView(
                   key: const PageStorageKey('sidebar-scroll'),
+                  controller: _sidebarScroll,
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 104),
                   children: [
                     Padding(
@@ -381,6 +403,12 @@ class _HomeShellState extends State<HomeShell> {
                                         ?.copyWith(color: colors.textSecondary),
                                   ),
                                 ),
+                                if (session.workingWorkspaceIds.contains(
+                                  session.workspace.id,
+                                )) ...[
+                                  const SizedBox(width: 8),
+                                  const BouncingDots(),
+                                ],
                                 const SizedBox(width: 5),
                                 Icon(
                                   Icons.keyboard_arrow_down_rounded,
@@ -398,9 +426,7 @@ class _HomeShellState extends State<HomeShell> {
                           (
                             0,
                             minimalism ? 'Bots' : 'Workspace',
-                            minimalism
-                                ? Icons.smart_toy_outlined
-                                : Icons.grid_view_rounded,
+                            Icons.grid_view_rounded,
                           ),
                           (1, 'Pursuits', Icons.track_changes_rounded),
                           (2, 'Spaces', Icons.layers_outlined),
@@ -416,29 +442,21 @@ class _HomeShellState extends State<HomeShell> {
                                   : session.updateCount)
                             : null,
                         icon: icon,
+                        leading: index == 0 && minimalism
+                            ? const GhostAvatar(
+                                mascot: Mascot.logo,
+                                identity: BotIdentity.mukai,
+                                size: 20,
+                              )
+                            : null,
                         selected: _bot == null && _index == index,
                         onTap: () => _destination(index),
                       ),
                     const Padding(
                       padding: EdgeInsets.fromLTRB(14, 25, 14, 10),
-                      child: _SidebarHeading('Companions'),
+                      child: _SidebarHeading('Conversations'),
                     ),
-                    for (final bot in session.bots)
-                      _SidebarItem(
-                        label: bot.name,
-                        leading: GhostAvatar(
-                          mascot: bot.mascot,
-                          identity: bot.identity,
-                          size: 27,
-                        ),
-                        selected: _bot?.id == bot.id,
-                        onTap: () => _openBot(bot),
-                      ),
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(14, 25, 14, 10),
-                      child: _SidebarHeading('Recent conversations'),
-                    ),
-                    if (session.recents.isEmpty)
+                    if (conversations.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 14,
@@ -449,9 +467,16 @@ class _HomeShellState extends State<HomeShell> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
-                    for (final conversation in session.recents)
+                    for (final conversation in conversations)
                       _SidebarItem(
+                        key: ValueKey(
+                          'sidebar-conversation-${conversation.id}',
+                        ),
                         label: conversation.title,
+                        selected: activeConversationId == conversation.id,
+                        trailing: workingConversations.contains(conversation.id)
+                            ? const BouncingDots()
+                            : null,
                         leading: _ConversationAvatar(
                           conversation: conversation,
                           bots: session.bots,
@@ -605,10 +630,12 @@ class _ConversationAvatar extends StatelessWidget {
 
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
+    super.key,
     required this.label,
     required this.onTap,
     this.icon,
     this.leading,
+    this.trailing,
     this.selected = false,
     this.badge,
   });
@@ -617,6 +644,7 @@ class _SidebarItem extends StatelessWidget {
   final VoidCallback onTap;
   final IconData? icon;
   final Widget? leading;
+  final Widget? trailing;
   final bool selected;
 
   @override
@@ -628,6 +656,7 @@ class _SidebarItem extends StatelessWidget {
         color: selected ? colors.accentSoft : Colors.transparent,
         borderRadius: BorderRadius.circular(13),
         child: ListTile(
+          selected: selected,
           minTileHeight: 46,
           dense: true,
           shape: RoundedRectangleBorder(
@@ -640,28 +669,29 @@ class _SidebarItem extends StatelessWidget {
                 size: 20,
                 color: selected ? colors.accentInk : colors.textSecondary,
               ),
-          trailing: badge == null
-              ? null
-              : Semantics(
-                  label: '$badge ${badge == 1 ? 'update' : 'updates'}',
-                  excludeSemantics: true,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colors.accentSoft,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '$badge',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.labelSmall?.copyWith(color: colors.accentInk),
-                    ),
-                  ),
-                ),
+          trailing:
+              trailing ??
+              (badge == null
+                  ? null
+                  : Semantics(
+                      label: '$badge ${badge == 1 ? 'update' : 'updates'}',
+                      excludeSemantics: true,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.accentSoft,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '$badge',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: colors.accentInk),
+                        ),
+                      ),
+                    )),
           title: Text(
             label,
             maxLines: 1,

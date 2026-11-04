@@ -202,29 +202,80 @@ class _CompactionStatus extends StatelessWidget {
   const _CompactionStatus({required this.block});
   final CompactionBlock block;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(switch (block.state) {
-          'compacting' => 'Compacting context…',
-          'complete' => 'Context compacted',
-          'failed' => 'Context compaction failed',
-          _ => 'Context compaction interrupted',
-        }, style: Theme.of(context).textTheme.labelMedium),
-        const SizedBox(height: 4),
-        Text(
-          block.state == 'complete' && block.after != null
-              ? '${block.before} → ${block.after} estimated context tokens. Original messages are kept.'
-              : block.state == 'compacting'
-              ? 'Preserving working memory before continuing. Original messages are kept.'
-              : 'Original messages are kept. Retry to resume.',
-          style: Theme.of(context).textTheme.bodySmall,
+  Widget build(BuildContext context) {
+    final colors = MukaiColors.of(context);
+    final label = switch (block.state) {
+      'compacting' => 'Compacting context…',
+      'complete' => 'Context compacted',
+      'failed' => 'Context compaction failed',
+      _ => 'Context compaction interrupted',
+    };
+    final detail = block.state == 'complete' && block.after != null
+        ? '${block.before} → ${block.after} estimated context tokens. Original messages are kept.'
+        : block.state == 'compacting'
+        ? 'Preserving working memory before continuing. Original messages are kept.'
+        : 'Original messages are kept. Retry to resume.';
+    return LayoutBuilder(
+      builder: (context, constraints) => Semantics(
+        liveRegion: true,
+        child: Tooltip(
+          message: detail,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Expanded(child: Divider(color: colors.hairline)),
+                const SizedBox(width: 12),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth * .8,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.compress_rounded,
+                        size: 13,
+                        color: colors.textMuted,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(fontSize: 11, color: colors.textMuted),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (block.state == 'compacting')
+                        SizedBox.square(
+                          dimension: 13,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: colors.textMuted,
+                          ),
+                        )
+                      else
+                        Icon(
+                          block.state == 'complete'
+                              ? Icons.check_rounded
+                              : Icons.error_outline_rounded,
+                          size: 13,
+                          color: colors.textMuted,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Divider(color: colors.hairline)),
+              ],
+            ),
+          ),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

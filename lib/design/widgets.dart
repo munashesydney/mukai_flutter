@@ -810,9 +810,9 @@ class _SystemStatusPillState extends State<SystemStatusPill>
   }
 }
 
-/// Three dots, staggered — the "bot is working" tell.
+/// The desktop activity indicator: three 4px dots, a 1.2s pulse and 150ms stagger.
 class BouncingDots extends StatefulWidget {
-  const BouncingDots({super.key, this.size = 6, this.color});
+  const BouncingDots({super.key, this.size = 4, this.color});
   final double size;
   final Color? color;
 
@@ -821,54 +821,77 @@ class BouncingDots extends StatefulWidget {
 }
 
 class _BouncingDotsState extends State<BouncingDots>
-    with TickerProviderStateMixin {
-  late final List<AnimationController> _dots =
-      List<AnimationController>.generate(
-        3,
-        (int i) => AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 620),
-        )..repeat(reverse: true, period: const Duration(milliseconds: 320)),
-      );
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _motion = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+  bool _reduceMotion = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion) {
+      _motion.stop();
+    } else if (!_motion.isAnimating) {
+      _motion.repeat();
+    }
+  }
 
   @override
   void dispose() {
-    for (final AnimationController controller in _dots) {
-      controller.dispose();
-    }
+    _motion.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final MukaiColors colors = MukaiColors.of(context);
-    final Color tint = widget.color ?? colors.textMuted;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        for (int i = 0; i < _dots.length; i++)
-          AnimatedBuilder(
-            animation: _dots[i],
-            builder: (BuildContext context, Widget? child) {
-              // Triangle wave from the controller -> a smooth sine hop.
-              final double lift = math
-                  .sin((_dots[i].value + i * 0.22) * math.pi)
-                  .abs();
-              return Transform.translate(
-                offset: Offset(0, -3.5 * lift),
-                child: Container(
-                  width: widget.size,
-                  height: widget.size,
-                  margin: EdgeInsets.only(right: i == 2 ? 0 : 4),
-                  decoration: BoxDecoration(
-                    color: tint.withValues(alpha: 0.45 + 0.55 * lift),
-                    shape: BoxShape.circle,
+    final tint = widget.color ?? MukaiColors.of(context).accentColor;
+    return Semantics(
+      label: 'AI is working',
+      liveRegion: true,
+      child: SizedBox(
+        height: math.max(14, widget.size + 4),
+        child: Center(
+          widthFactor: 1,
+          child: AnimatedBuilder(
+            animation: _motion,
+            builder: (context, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < 3; i++)
+                  Builder(
+                    builder: (context) {
+                      final elapsed =
+                          (_motion.lastElapsedDuration?.inMilliseconds ?? 0) -
+                          i * 150;
+                      final phase = (elapsed % 1200) / 1200;
+                      final pulse = _reduceMotion || elapsed < 0
+                          ? 0.0
+                          : Curves.easeInOut.transform(
+                              phase <= .5 ? phase * 2 : (1 - phase) * 2,
+                            );
+                      return Padding(
+                        padding: EdgeInsets.only(right: i == 2 ? 0 : 4),
+                        child: Transform.translate(
+                          offset: Offset(0, -2 * pulse),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: tint.withValues(alpha: 1 - .7 * pulse),
+                              shape: BoxShape.circle,
+                            ),
+                            child: SizedBox.square(dimension: widget.size),
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                ),
-              );
-            },
+              ],
+            ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }

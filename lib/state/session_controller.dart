@@ -44,6 +44,11 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription<List<ChatMessage>>? _liveSubscription;
   Completer<void>? _sendCompletion;
   Future<void> _cancelLiveSubscription() async {
+    // Detaching the phone's stream does not stop the server's response.
+    if (remote != null && _bot != null && responding) {
+      _backgroundWorking[(workspace.id, _conversationId ?? 'bot-${bot.id}')] =
+          bot.id;
+    }
     _generation++;
     final subscription = _liveSubscription;
     _liveSubscription = null;
@@ -142,6 +147,13 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     aiActivity = values[1] is Map
         ? object(values[1])
         : {}; // Never retain a stale recovery banner offline.
+    // Refresh background chat flags even while a different chat stays open.
+    if (values[1] is Map &&
+        _chatVisible &&
+        _bot != null &&
+        workingConversationIds.isNotEmpty) {
+      unawaited(loadRecents());
+    }
     _emit();
   }
 
@@ -175,6 +187,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
       if (!_chatVisible) {
         await remote!.refresh();
         if (_isCurrent(generation)) {
+          _reconcileBackgroundWorking();
           _recents = remote!.recentConversations();
           _emit();
         }
@@ -182,7 +195,10 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (_bot == null) {
         await remote!.refresh();
-        if (_isCurrent(generation)) _recents = remote!.recentConversations();
+        if (_isCurrent(generation)) {
+          _reconcileBackgroundWorking();
+          _recents = remote!.recentConversations();
+        }
       }
       if (_bot != null && !_responding) {
         final thread = await remote!.loadThread(
@@ -393,6 +409,8 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   List<ChatMessage> _thread = const <ChatMessage>[];
   List<Conversation> _conversations = const <Conversation>[];
   List<Conversation> _recents = const <Conversation>[];
+  final Map<(String, String), DateTime> _conversationInteractions = {};
+  final Map<(String, String), String> _backgroundWorking = {};
   ChatActivity _activity = const ChatActivity();
   String? _conversationId;
   bool _loading = false;
@@ -425,6 +443,102 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// All available private/bot chats for paginated bot groups.
   List<Conversation> get botConversations =>
       _repository.recentConversations(limit: null);
+
+  /// Sidebar history includes older chats and honors local interactions as well
+  /// as the server's latest activity, scoped to the current workspace.
+  List<Conversation> get sidebarConversations {
+    final conversations = botConversations;
+    for (final conversation in remote?.allConversations ?? <Conversation>[]) {
+      if (_conversationInteractions.containsKey((
+            workspace.id,
+            conversation.id,
+          )) &&
+          !conversations.any((chat) => chat.id == conversation.id)) {
+        conversations.add(conversation);
+      }
+    }
+    DateTime lastInteraction(Conversation chat) {
+      final opened = _conversationInteractions[(workspace.id, chat.id)];
+      return opened != null && opened.isAfter(chat.updatedAt)
+          ? opened
+          : chat.updatedAt;
+    }
+
+    conversations.sort((a, b) {
+      final order = lastInteraction(b).compareTo(lastInteraction(a));
+      return order != 0 ? order : a.id.compareTo(b.id);
+    });
+    return conversations;
+  }
+
+  void _touchConversation() {
+    final id = _conversationId;
+    if (id != null) {
+      _conversationInteractions[(workspace.id, id)] = DateTime.now();
+    }
+  }
+
+  Iterable<Map<String, dynamic>> get _conversationWork sync* {
+    for (final state in [
+      'running',
+      'queued',
+      'pursuitRunning',
+      'pursuitQueued',
+    ]) {
+      for (final work in objects(aiActivity[state])) {
+        final workWorkspace = work['workspaceId'];
+        if (workWorkspace == null || workWorkspace == workspace.id) yield work;
+      }
+    }
+  }
+
+  /// The picker includes running work in every workspace, not just this one.
+  Set<String> get workingWorkspaceIds => {
+    for (final id
+        in (aiActivity['workingWorkspaceIds'] as List? ?? const [])
+            .whereType<String>())
+      if (id.isNotEmpty) id,
+    for (final state in ['running', 'pursuitRunning'])
+      for (final work in objects(aiActivity[state]))
+        if (string(work['workspaceId']).isNotEmpty) string(work['workspaceId']),
+    if ((_bot != null && responding) ||
+        botConversations.any((chat) => chat.isWorking) ||
+        _backgroundWorking.keys.any((key) => key.$1 == workspace.id))
+      workspace.id,
+  };
+
+  Set<String> get workingConversationIds => {
+    for (final chat in botConversations)
+      if (chat.isWorking) chat.id,
+    for (final work in _conversationWork)
+      if (string(work['conversationId']).isNotEmpty)
+        string(work['conversationId']),
+    for (final entry in _backgroundWorking.keys)
+      if (entry.$1 == workspace.id) entry.$2,
+    if (_bot != null && responding) _conversationId ?? 'bot-${bot.id}',
+  };
+
+  Set<String> get workingBotIds {
+    final working = workingConversationIds;
+    return {
+      for (final chat in botConversations)
+        if (working.contains(chat.id))
+          if (chat.kind == 'bot' && chat.botIds.length > 1)
+            chat.botIds[1]
+          else
+            chat.botId,
+      for (final work in _conversationWork)
+        if (string(work['botId']).isNotEmpty) string(work['botId']),
+      for (final entry in _backgroundWorking.entries)
+        if (entry.key.$1 == workspace.id) entry.value,
+      if (_bot != null && responding) bot.id,
+    };
+  }
+
+  void _reconcileBackgroundWorking() {
+    _backgroundWorking.removeWhere((key, _) => key.$1 == workspace.id);
+  }
+
   ChatActivity get activity => _activity;
   bool get loadingThreads => _loading;
   bool get responding =>
@@ -469,7 +583,11 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
         (remote != null
             ? conversationId == _conversationId
             : (conversationId == null || conversationId == _conversationId));
-    if (sameBot && _space == space && readOnly == viewOnly) return;
+    if (sameBot && _space == space && readOnly == viewOnly) {
+      _touchConversation();
+      _emit();
+      return;
+    }
     await _cancelLiveSubscription();
     if (_disposed) return;
     _space = space;
@@ -484,6 +602,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
               (remote != null
                   ? null
                   : (_conversations.isEmpty ? null : _conversations.first.id));
+    _touchConversation();
     _error = null;
     _turn = 0;
     _stopStream();
@@ -500,6 +619,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
         final created = await remote!.createConversation(botId);
         if (!_isCurrent(generation)) return;
         _conversationId = created;
+        _touchConversation();
       }
       final selectedConversation = _conversationId;
       final thread = fresh && remote == null
@@ -556,6 +676,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> send(String rawText) async {
     final String text = rawText.trim();
     if (_loading || (text.isEmpty && attachments.isEmpty) || readOnly) return;
+    _touchConversation();
     if (remote != null) {
       await _sendLive(text);
       return;
@@ -861,6 +982,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       await _repository.refresh();
       if (generation != _workspaceGeneration) return;
+      _reconcileBackgroundWorking();
       _recents = _repository.recentConversations(limit: limit);
     } on MukaiDataException catch (failure) {
       if (generation != _workspaceGeneration) return;

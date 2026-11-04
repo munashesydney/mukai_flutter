@@ -167,12 +167,14 @@ class _ResponseBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final process = message.blocks
-        .where((b) =>
-            b.isProcess &&
-            // Providers emit separator newlines on otherwise tool-only steps.
-            // They are not commentary boundaries and must not split one tool
-            // loop into rows (desktop `visibleProcess`).
-            (b is! TextBlock || b.text.trim().isNotEmpty))
+        .where(
+          (b) =>
+              b.isProcess &&
+              // Providers emit separator newlines on otherwise tool-only steps.
+              // They are not commentary boundaries and must not split one tool
+              // loop into rows (desktop `visibleProcess`).
+              (b is! TextBlock || b.text.trim().isNotEmpty),
+        )
         .toList();
     final answer = message.blocks
         .where((b) => !b.isProcess && b is! ApprovalBlock)
@@ -256,7 +258,6 @@ class _WorkTranscriptState extends State<_WorkTranscript> {
             'interrupted' => 'Interrupted',
             _ => 'Worked',
           };
-    final compaction = widget.blocks.whereType<CompactionBlock>().lastOrNull;
     // While a call is in flight its shimmer rides on the deepest visible
     // label describing the work: here, on "Working for …" itself whenever the
     // transcript is collapsed and the running tool stays hidden inside.
@@ -268,9 +269,9 @@ class _WorkTranscriptState extends State<_WorkTranscript> {
             ));
     final label = Text(
       '$verb${duration == null ? '' : ' for $duration'}',
-      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-        color: MukaiColors.of(context).textMuted,
-      ),
+      style: Theme.of(
+        context,
+      ).textTheme.bodySmall?.copyWith(color: MukaiColors.of(context).textMuted),
     );
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -296,21 +297,6 @@ class _WorkTranscriptState extends State<_WorkTranscript> {
                     ),
             ),
           ),
-          if (compaction != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(
-                switch (compaction.state) {
-                  'compacting' => 'Compacting context…',
-                  'complete' => 'Context compacted',
-                  'failed' => 'Context compaction failed',
-                  _ => 'Context compaction interrupted',
-                },
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: MukaiColors.of(context).textMuted,
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -337,9 +323,9 @@ bool _isToolPart(ChatBlock block) => _isWork(block) && !_isReasoning(block);
 // surrounding group, matching desktop `mediaActivityKind`.
 String? _mediaKind(ChatBlock block) =>
     block is ToolBlock &&
-            block.previewHref?.startsWith('mukai-activity:') == true
-        ? 'image'
-        : null;
+        block.previewHref?.startsWith('mukai-activity:') == true
+    ? 'image'
+    : null;
 
 List<Object> _workRuns(List<ChatBlock> blocks) {
   final runs = <Object>[];
@@ -350,9 +336,7 @@ List<Object> _workRuns(List<ChatBlock> blocks) {
     }
     final last = runs.isEmpty ? null : runs.last;
     final group = last is List<ChatBlock> ? last : null;
-    final firstTool = group
-        ?.where(_isToolPart)
-        .firstOrNull;
+    final firstTool = group?.where(_isToolPart).firstOrNull;
     final joins =
         group != null &&
         (_isReasoning(block) ||
@@ -403,7 +387,11 @@ String _workGroupLabel(List<ChatBlock> group, bool active) {
   if (media != null && tools.every((tool) => _mediaKind(tool) == media)) {
     final count = active
         ? tools.length
-        : tools.where((tool) => tool is ToolBlock && tool.state == ToolState.done).length;
+        : tools
+              .where(
+                (tool) => tool is ToolBlock && tool.state == ToolState.done,
+              )
+              .length;
     if (count == 0) return 'Image viewing';
     return '${active ? 'Viewing' : 'Viewed'} $count image${count == 1 ? '' : 's'}';
   }
@@ -428,8 +416,7 @@ String _workGroupLabel(List<ChatBlock> group, bool active) {
       .asMap()
       .entries
       .map(
-        (entry) =>
-            entry.key == 0
+        (entry) => entry.key == 0
             ? entry.value
             : entry.value[0].toLowerCase() + entry.value.substring(1),
       )
@@ -489,9 +476,9 @@ class _WorkGroupDisclosureState extends State<_WorkGroupDisclosure> {
     );
     // The running tool's shimmer rides up onto this label while the group
     // stays collapsed and its individual tool rows are hidden.
-    final running = group
-        .whereType<ToolBlock>()
-        .any((tool) => tool.state == ToolState.running);
+    final running = group.whereType<ToolBlock>().any(
+      (tool) => tool.state == ToolState.running,
+    );
     return MukaiDisclosure(
       title: Row(
         mainAxisSize: MainAxisSize.min,
@@ -505,9 +492,7 @@ class _WorkGroupDisclosureState extends State<_WorkGroupDisclosure> {
           ),
           const SizedBox(width: 6),
           Flexible(
-            child: running && !_open
-                ? MukaiShimmerText(child: label)
-                : label,
+            child: running && !_open ? MukaiShimmerText(child: label) : label,
           ),
           if (problems > 0) ...[
             const SizedBox(width: 6),

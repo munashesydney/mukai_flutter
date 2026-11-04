@@ -82,6 +82,10 @@ state after app resume. Switching conversations cancels the local stream without
 stopping server work. Drafts are scoped to conversations, and uncertain sends
 retain their request ID so retrying does not create a second request.
 
+The iOS app icon uses the Mukai logo on a solid white background. The opaque
+icon set lives in `native/ios/AppIcon.appiconset`; bootstrap copies it into the
+generated Xcode asset catalog for iPhone, iPad, and App Store sizes.
+
 Appearance opens below the top safe area, supports drag-to-dismiss, and has an
 explicit close button. Its default-on **Minimalism** switch shows a compact bot
 list: tap a bot to reveal its three latest chats, then load three more at a time.

@@ -65,11 +65,13 @@ class Conversation {
     required this.updatedAt,
     this.preview = '',
     this.kind = 'private',
+    this.isWorking = false,
     this.description = '',
     this.botIds = const [],
   });
 
   final String kind;
+  final bool isWorking;
   final String description;
   final List<String> botIds;
   final String id;

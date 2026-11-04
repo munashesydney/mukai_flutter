@@ -64,6 +64,12 @@ class MinimalBotHome extends StatelessWidget {
                                       ?.copyWith(color: colors.textMuted),
                                 ),
                               ),
+                              if (session.workingWorkspaceIds.contains(
+                                session.workspace.id,
+                              )) ...[
+                                const SizedBox(width: 8),
+                                const BouncingDots(),
+                              ],
                               if (onSwitchWorkspace != null) ...[
                                 const SizedBox(width: 4),
                                 Icon(
@@ -99,6 +105,9 @@ class MinimalBotHome extends StatelessWidget {
               key: ValueKey(session.workspace.id),
               bots: session.bots,
               conversations: session.botConversations,
+              workingConversationIds: session.workingConversationIds,
+              workingBotIds: session.workingBotIds,
+              activeConversationId: session.conversationId,
               onOpenConversation: onOpenConversation,
               onNewConversation: onOpenBot,
             ),

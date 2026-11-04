@@ -83,6 +83,7 @@ fi
 # ---------------------------------------------------------------------------
 python3 - <<'PYPLIST'
 import plistlib
+import shutil
 from pathlib import Path
 path = Path('ios/Runner/Info.plist')
 with path.open('rb') as stream:
@@ -106,6 +107,13 @@ project.write_text(text)
 
 # Keep the native Quick Look bridge reproducible when regenerating the host.
 Path('ios/Runner/AppDelegate.swift').write_text(Path('native/ios/AppDelegate.swift').read_text())
+
+# Keep the opaque Mukai app icons when regenerating the iOS host.
+shutil.copytree(
+    'native/ios/AppIcon.appiconset',
+    'ios/Runner/Assets.xcassets/AppIcon.appiconset',
+    dirs_exist_ok=True,
+)
 PYPLIST
 
 flutter pub get

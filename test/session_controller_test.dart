@@ -215,6 +215,116 @@ void main() {
     });
   });
 
+  test(
+    'sidebar history combines visits, sends and updated activity across all chats',
+    () async {
+      final start = DateTime(2026, 11, 1);
+      final history = [
+        for (var i = 0; i < 9; i++)
+          Conversation(
+            id: 'chat-$i',
+            title: 'Chat $i',
+            botId: 'scout',
+            updatedAt: start.subtract(Duration(hours: i)),
+          ),
+      ];
+      final repository = _HistoryRepository(history);
+      final session = SessionController(repository);
+      addTearDown(session.dispose);
+      await session.loadRecents();
+      expect(session.recents, hasLength(6));
+      expect(session.sidebarConversations, hasLength(9));
+      expect(session.sidebarConversations.first.id, 'chat-0');
+
+      await session.openBot('scout', conversationId: 'chat-8');
+      expect(session.sidebarConversations.first.id, 'chat-8');
+      await session.openBot('scout', conversationId: 'chat-7');
+      expect(session.sidebarConversations.take(2).map((c) => c.id), [
+        'chat-7',
+        'chat-8',
+      ]);
+      await session.openBot('scout', conversationId: 'chat-8');
+      expect(session.sidebarConversations.take(2).map((c) => c.id), [
+        'chat-8',
+        'chat-7',
+      ]);
+      await session.loadRecents();
+      expect(session.sidebarConversations.first.id, 'chat-8');
+
+      repository.history[0] = Conversation(
+        id: 'chat-0',
+        title: 'Updated elsewhere',
+        botId: 'scout',
+        updatedAt: DateTime.now(),
+      );
+      expect(session.sidebarConversations.first.id, 'chat-0');
+      await session.send('Continue this conversation');
+      expect(session.sidebarConversations.first.id, 'chat-8');
+      expect(
+        session.sidebarConversations.map((c) => c.id).toSet(),
+        hasLength(9),
+      );
+    },
+  );
+
+  test(
+    'working status combines server, scheduler and local work without crossing workspaces',
+    () async {
+      final repository = _HistoryRepository([
+        Conversation(
+          id: 'busy-pair',
+          title: 'Bot chat',
+          botId: 'scout',
+          kind: 'bot',
+          botIds: const ['scout', 'nova'],
+          isWorking: true,
+          updatedAt: DateTime.now(),
+        ),
+      ]);
+      final session = SessionController(repository);
+      addTearDown(session.dispose);
+      expect(session.workingConversationIds, {'busy-pair'});
+      expect(session.workingBotIds, {'nova'});
+      expect(session.workingWorkspaceIds, {session.workspace.id});
+      session.aiActivity = {
+        'running': [
+          {
+            'workspaceId': session.workspace.id,
+            'conversationId': 'live-chat',
+            'botId': 'atlas',
+          },
+          {
+            'workspaceId': 'other-workspace',
+            'conversationId': 'wrong-chat',
+            'botId': 'wrong-bot',
+          },
+        ],
+        'queued': [
+          {
+            'workspaceId': session.workspace.id,
+            'conversationId': 'queued-chat',
+            'botId': 'scout',
+          },
+        ],
+      };
+      expect(session.workingConversationIds, {
+        'busy-pair',
+        'live-chat',
+        'queued-chat',
+      });
+      expect(session.workingBotIds, {'nova', 'atlas', 'scout'});
+      session.aiActivity = {};
+      repository.history.clear();
+      await session.openBot('scout', conversationId: 'local-chat');
+      await session.send('Work locally');
+      expect(session.workingConversationIds, {'local-chat'});
+      expect(session.workingBotIds, {'scout'});
+      session.stop();
+      expect(session.workingConversationIds, isEmpty);
+      expect(session.workingBotIds, isEmpty);
+    },
+  );
+
   test('dispose stops late updates', () async {
     final SessionController session = SessionController(
       MukaiDemoRepository(latency: const Duration(milliseconds: 20)),
@@ -225,4 +335,13 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 60));
     expect(session.thread, isEmpty);
   });
+}
+
+class _HistoryRepository extends MukaiDemoRepository {
+  _HistoryRepository(this.history) : super(latency: Duration.zero);
+  final List<Conversation> history;
+
+  @override
+  List<Conversation> recentConversations({int? limit = 6}) =>
+      history.take(limit ?? history.length).toList();
 }

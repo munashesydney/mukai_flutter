@@ -212,6 +212,9 @@ class _MukaiServer {
           'workspaceId': 'workspace-one',
           'kind': 'private',
           'name': 'Server history',
+          'isWorking': history['history-chat']!.any(
+            (m) => m['status'] == 'streaming',
+          ),
           'description': 'Selected thread',
           'botIds': ['bot-one'],
           'ownerBotId': 'bot-one',
@@ -689,6 +692,8 @@ void main() {
       addTearDown(session.dispose);
       await session.openBot('bot-one', conversationId: 'history-chat');
       final send = session.send('Work while I read another chat');
+      expect(session.workingConversationIds, contains('history-chat'));
+      expect(session.workingBotIds, contains('bot-one'));
       await _until(() => session.thread.any((m) => m.id == 'server-assistant'));
       await session
           .openBot('bot-one', conversationId: 'other-chat')
@@ -696,6 +701,19 @@ void main() {
       await send.timeout(const Duration(seconds: 3));
       expect(session.conversationId, 'other-chat');
       expect(session.thread.single.id, 'other-assistant');
+      expect(session.workingConversationIds, contains('history-chat'));
+      await session.loadRecents();
+      expect(repo.recentConversations().single.isWorking, isTrue);
+      expect(session.workingConversationIds, contains('history-chat'));
+      server._finishReply!.complete();
+      await _until(
+        () => !server.history['history-chat']!.any(
+          (m) => m['status'] == 'streaming',
+        ),
+      );
+      await session.loadRecents();
+      expect(session.workingConversationIds, isNot(contains('history-chat')));
+      expect(session.workingBotIds, isNot(contains('bot-one')));
       expect(
         server.requests.where((r) => r.uri.path.endsWith('/stop')),
         isEmpty,

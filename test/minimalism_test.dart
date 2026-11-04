@@ -41,6 +41,7 @@ void main() {
     (tester) async {
       Conversation? opened;
       MukaiBot? created;
+      var creationCount = 0;
       final now = DateTime.now();
       final chats = [
         for (var i = 7; i >= 0; i--)
@@ -81,7 +82,10 @@ void main() {
                 bots: const [alpha, beta],
                 conversations: chats,
                 onOpenConversation: (chat) => opened = chat,
-                onNewConversation: (bot) => created = bot,
+                onNewConversation: (bot) {
+                  created = bot;
+                  creationCount++;
+                },
               ),
             ),
           ),
@@ -119,7 +123,17 @@ void main() {
       expect(find.text('Bot pair'), findsOneWidget);
       expect(find.text('Alpha chat 0'), findsNothing);
       await tester.tap(find.byTooltip('New conversation with Beta'));
+      await tick(tester);
       expect(created, beta);
+      expect(creationCount, 1);
+      expect(find.text('Beta chat'), findsOneWidget);
+      expect(find.text('Bot pair'), findsOneWidget);
+      await tester.tap(find.byTooltip('New conversation with Alpha'));
+      await tick(tester);
+      expect(created, alpha);
+      expect(creationCount, 2);
+      expect(find.text('Alpha chat 0'), findsNothing);
+      expect(find.text('Beta chat'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

@@ -453,9 +453,9 @@ class _SendButton extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: responding
-                  ? colors.textBody
-                  : (canSend ? colors.accentColor : colors.accentSoft),
+              color: responding || canSend
+                  ? colors.accentColor
+                  : colors.accentSoft,
               shape: BoxShape.circle,
               boxShadow: canSend || responding
                   ? MukaiShadows.card(colors.brightness)

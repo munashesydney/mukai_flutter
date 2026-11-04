@@ -16,12 +16,14 @@ class WorkspaceSheet extends StatelessWidget {
     required this.others,
     required this.onSelect,
     required this.onCreate,
+    this.workingWorkspaceIds = const {},
   });
 
   final MukaiWorkspace current;
   final List<MukaiWorkspace> others;
   final ValueChanged<MukaiWorkspace> onSelect;
   final VoidCallback onCreate;
+  final Set<String> workingWorkspaceIds;
 
   @override
   Widget build(BuildContext context) {
@@ -40,8 +42,9 @@ class WorkspaceSheet extends StatelessWidget {
           ])
             _WorkspaceRow(
               workspace: workspace,
-              selected: workspace.name == current.name,
-              onTap: workspace.name == current.name
+              working: workingWorkspaceIds.contains(workspace.id),
+              selected: workspace.id == current.id,
+              onTap: workspace.id == current.id
                   ? null
                   : () {
                       Haptics.select();
@@ -75,11 +78,13 @@ class _WorkspaceRow extends StatelessWidget {
   const _WorkspaceRow({
     required this.workspace,
     required this.selected,
+    required this.working,
     this.onTap,
   });
 
   final MukaiWorkspace workspace;
   final bool selected;
+  final bool working;
   final VoidCallback? onTap;
 
   @override
@@ -109,6 +114,7 @@ class _WorkspaceRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (working) ...[const BouncingDots(), const SizedBox(width: 10)],
             if (selected)
               Icon(Icons.check_rounded, size: 19, color: colors.accentColor),
           ],
