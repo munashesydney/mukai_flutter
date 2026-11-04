@@ -104,7 +104,11 @@ class _MukaiExpansionState extends State<MukaiExpansion>
                   ignoring: !widget.expanded,
                   child: ClipRect(
                     child: SizeTransition(
-                      alignment: Alignment.topCenter,
+                      // Anchor top-start: SizeTransition's alignment covers
+                      // both axes, and a center anchor would shift narrow
+                      // disclosure content (like a short tool detail) off to
+                      // the middle of its row instead of leaving it flush.
+                      alignment: AlignmentDirectional.topStart,
                       sizeFactor: _curve,
                       child: FadeTransition(
                         key: _childKey,

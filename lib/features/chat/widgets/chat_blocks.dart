@@ -164,7 +164,9 @@ class _ToolCard extends StatelessWidget {
         ],
       ),
       builder: (_) => Padding(
-        padding: const EdgeInsets.only(top: 3, bottom: 12),
+        // Matches the disclosure title's own 2px inset so the detail sits
+        // flush under the tool label.
+        padding: const EdgeInsets.only(left: 2, top: 3, bottom: 12),
         child: SelectableText(
           block.detail.isEmpty ? 'No additional details.' : block.detail,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
