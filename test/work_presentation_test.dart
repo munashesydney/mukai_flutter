@@ -1,0 +1,341 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mukai_flutter/core/format.dart';
+import 'package:mukai_flutter/data/api/api_client.dart';
+import 'package:mukai_flutter/data/api/api_repository.dart';
+import 'package:mukai_flutter/design/appearance.dart';
+import 'package:mukai_flutter/design/theme.dart';
+import 'package:mukai_flutter/design/disclosure.dart';
+import 'package:mukai_flutter/domain/models.dart';
+import 'package:mukai_flutter/features/chat/widgets/message_bubble.dart';
+import 'package:mukai_flutter/features/chat/widgets/ai_queue_notice.dart';
+
+Future<void> frames(WidgetTester tester) async {
+  for (var i = 0; i < 7; i++) {
+    await tester.pump(const Duration(milliseconds: 60));
+  }
+}
+
+Widget app(Widget child) => MaterialApp(
+  theme: mukaiTheme(MukaiPreferences.defaults, Brightness.light),
+  home: Scaffold(body: child),
+);
+
+void main() {
+  test(
+    'duration matches desktop hours, minutes, seconds and unknown dates',
+    () {
+      final start = DateTime(2026);
+      expect(
+        Format.workDuration(start, start.add(const Duration(seconds: 63))),
+        '1m 3s',
+      );
+      expect(
+        Format.workDuration(start, start.add(const Duration(seconds: 3664))),
+        '1h 1m 4s',
+      );
+      expect(Format.workDuration(null, start), isNull);
+      expect(
+        Format.workDuration(start, start.subtract(const Duration(seconds: 1))),
+        isNull,
+      );
+    },
+  );
+
+  test('saved compaction and image parts retain the desktop semantics', () {
+    final client = MukaiApiClient('https://mukai.test', 'fixture');
+    addTearDown(client.close);
+    final repo = ApiRepository(client);
+    ChatMessage read(String status) => repo.messageFromJson({
+      'id': 'm',
+      'role': 'assistant',
+      'status': status,
+      'parts': [
+        {
+          'id': 'compact',
+          'type': 'compaction',
+          'state': 'compacting',
+          'tokensBefore': 64000,
+        },
+        {'id': 't', 'type': 'tool', 'activityId': 'a'},
+      ],
+      'activity': [
+        {
+          'id': 'a',
+          'tool': 'media',
+          'action': 'view_image',
+          'status': 'complete',
+        },
+      ],
+    }, 'history');
+    expect(
+      read('streaming').blocks.whereType<CompactionBlock>().single.state,
+      'compacting',
+    );
+    expect(
+      read('interrupted').blocks.whereType<CompactionBlock>().single.state,
+      'interrupted',
+    );
+    expect(
+      read('complete').blocks.whereType<ToolBlock>().single.previewHref,
+      'mukai-activity:a',
+    );
+    expect(read('complete').conversationId, 'history');
+  });
+
+  testWidgets(
+    'memory cooldown counts down and clears when the scheduler recovers',
+    (tester) async {
+      final activity = {
+        'running': [],
+        'queued': [
+          {
+            'conversationId': 'history',
+            'memoryPressure': {
+              'cooldownUntil': DateTime.now()
+                  .add(const Duration(seconds: 8))
+                  .toIso8601String(),
+              'providerName': 'Local model',
+              'effectiveLimit': 1,
+              'configuredLimit': 3,
+            },
+          },
+        ],
+      };
+      await tester.pumpWidget(
+        app(AIQueueNotice(activity: activity, conversationId: 'history')),
+      );
+      expect(find.text('Waiting for memory recovery'), findsOneWidget);
+      expect(find.textContaining('Retry in'), findsOneWidget);
+      expect(find.textContaining('saved maximum is 3'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpWidget(
+        app(
+          const AIQueueNotice(
+            activity: {'running': [], 'queued': []},
+            conversationId: 'history',
+          ),
+        ),
+      );
+      expect(find.text('Waiting for memory recovery'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'overall work stays closed as calls arrive and final answer remains visible',
+    (tester) async {
+      final client = MukaiApiClient('https://mukai.test', 'fixture');
+      addTearDown(client.close);
+      final repo = ApiRepository(client);
+      ChatMessage message(String status) => repo.messageFromJson({
+        'id': 'response',
+        'botId': 'bot',
+        'role': 'assistant',
+        'status': status,
+        'createdAt': '2026-11-03T10:00:00Z',
+        'startedAt': '2026-11-03T10:00:00Z',
+        'finishedAt': status == 'complete' ? '2026-11-03T10:01:03Z' : null,
+        'parts': [
+          {
+            'id': 'comment',
+            'type': 'text',
+            'text': 'I will inspect the workspace.',
+          },
+          {'id': 'tool-part', 'type': 'tool', 'activityId': 'tool-call'},
+          if (status == 'complete')
+            {
+              'id': 'answer',
+              'type': 'text',
+              'text': 'Here is the final answer.',
+            },
+        ],
+        'activity': [
+          {
+            'id': 'tool-call',
+            'tool': 'file_operations',
+            'action': 'read_file',
+            'summary': 'Read launch notes',
+            'status': status == 'complete' ? 'complete' : 'running',
+          },
+        ],
+      }, 'history');
+      await tester.pumpWidget(
+        app(MessageView(message: message('streaming'), bots: const [])),
+      );
+      await frames(tester);
+      expect(find.textContaining('Working for'), findsOneWidget);
+      expect(
+        find.textContaining('inspect the workspace', findRichText: true),
+        findsNothing,
+      );
+      await tester.pumpWidget(
+        app(MessageView(message: message('complete'), bots: const [])),
+      );
+      await frames(tester);
+      expect(find.text('Worked for 1m 3s'), findsOneWidget);
+      expect(
+        find.textContaining('final answer', findRichText: true),
+        findsWidgets,
+      );
+      expect(
+        find.textContaining('inspect the workspace', findRichText: true),
+        findsNothing,
+      );
+      await tester.tap(find.text('Worked for 1m 3s'));
+      await frames(tester);
+      expect(
+        find.textContaining('inspect the workspace', findRichText: true),
+        findsWidgets,
+      );
+      // The desktop hierarchy: the work disclosure wraps a second-level
+      // group describing the run, which wraps the individual tool.
+      expect(find.text('Read files'), findsOneWidget);
+      expect(find.text('Read a file'), findsNothing);
+      await tester.tap(find.text('Read files'));
+      await frames(tester);
+      expect(find.text('Read a file'), findsOneWidget);
+      expect(find.textContaining('Read launch notes'), findsNothing);
+      await tester.tap(find.text('Read a file'));
+      await frames(tester);
+      expect(find.textContaining('Read launch notes'), findsWidgets);
+      await tester.tap(find.text('Worked for 1m 3s'));
+      await frames(tester);
+      expect(find.text('Read files'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'disclosure reveals height progressively and keeps its child safely mounted',
+    (tester) async {
+      await tester.pumpWidget(
+        app(
+          Column(
+            children: [
+              MukaiDisclosure(
+                title: const Text('Details'),
+                builder: (_) =>
+                    const SizedBox(height: 200, child: Text('Body')),
+              ),
+            ],
+          ),
+        ),
+      );
+      expect(find.text('Body'), findsNothing);
+      await tester.tap(find.text('Details'));
+      await tester.pump();
+      final expansion = find.byType(MukaiExpansion);
+      expect(tester.getSize(expansion).height, 0);
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(tester.getSize(expansion).height, inExclusiveRange(0, 200));
+      await frames(tester);
+      expect(tester.getSize(expansion).height, 200);
+      await tester.tap(find.text('Details'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(tester.getSize(expansion).height, inExclusiveRange(0, 200));
+      await frames(tester);
+      expect(find.text('Body'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'opening a disclosure in the reversed chat list keeps its header in place',
+    (tester) async {
+      await tester.pumpWidget(
+        app(
+          ListView(
+            reverse: true,
+            children: [
+              const SizedBox(height: 240),
+              MukaiDisclosure(
+                title: const Text('Worked'),
+                builder: (_) =>
+                    const SizedBox(height: 220, child: Text('Work body')),
+              ),
+              const SizedBox(height: 400),
+            ],
+          ),
+        ),
+      );
+      await frames(tester);
+      final before = tester.getTopLeft(find.text('Worked')).dy;
+      await tester.tap(find.text('Worked'));
+      await frames(tester);
+      expect(find.text('Work body'), findsOneWidget);
+      expect(
+        (tester.getTopLeft(find.text('Worked')).dy - before).abs(),
+        lessThan(1),
+      );
+      await tester.tap(find.text('Worked'));
+      await frames(tester);
+      expect(
+        (tester.getTopLeft(find.text('Worked')).dy - before).abs(),
+        lessThan(1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('compaction state is shown without opening the work transcript', (
+    tester,
+  ) async {
+    ChatMessage message(String state) => ChatMessage(
+      id: 'compaction',
+      fromUser: false,
+      at: DateTime.now(),
+      streaming: state == 'compacting',
+      blocks: [
+        CompactionBlock(
+          id: 'c',
+          state: state,
+          before: 64000,
+          after: state == 'complete' ? 16000 : null,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      app(MessageView(message: message('compacting'), bots: const [])),
+    );
+    await frames(tester);
+    expect(find.text('Compacting context…'), findsOneWidget);
+    await tester.pumpWidget(
+      app(MessageView(message: message('complete'), bots: const [])),
+    );
+    await frames(tester);
+    expect(find.text('Context compacted'), findsOneWidget);
+    await tester.tap(find.text('Worked'));
+    await frames(tester);
+    expect(find.textContaining('64000 → 16000'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'RAM recovery uses scheduler state and never shows another conversation notice',
+    (tester) async {
+      final activity = {
+        'running': [
+          {
+            'conversationId': 'history',
+            'memoryRetry': {'attempt': 2, 'maxAttempts': 3, 'phase': 'retry'},
+          },
+        ],
+        'queued': [],
+      };
+      await tester.pumpWidget(
+        app(AIQueueNotice(activity: activity, conversationId: 'other')),
+      );
+      expect(find.text('Retrying after memory rejection'), findsNothing);
+      await tester.pumpWidget(
+        app(AIQueueNotice(activity: activity, conversationId: 'history')),
+      );
+      expect(find.text('Retrying after memory rejection'), findsOneWidget);
+      expect(find.textContaining('Retry 2/3'), findsOneWidget);
+      expect(find.text('Continuing from saved results.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}

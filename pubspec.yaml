@@ -1,0 +1,31 @@
+name: mukai_flutter
+description: "Mukai for iOS — a native Flutter companion UI. Wake up to what's possible."
+publish_to: 'none'
+version: 0.2.0+2
+
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+  flutter: '>=3.41.0'
+
+dependencies:
+  file_selector: ^1.1.0
+  flutter:
+    sdk: flutter
+  flutter_appauth: ^13.0.0
+  flutter_markdown_plus: ^1.0.12
+  flutter_secure_storage: ^11.2.0
+  share_plus: ^13.3.1
+  shared_preferences: ^2.5.6
+  url_launcher: ^6.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: '>=4.0.0 <7.0.0'
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/mascots/
