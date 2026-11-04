@@ -166,7 +166,14 @@ class _ResponseBody extends StatelessWidget {
   final void Function(ApprovalBlock, bool)? onApproval;
   @override
   Widget build(BuildContext context) {
-    final process = message.blocks.where((b) => b.isProcess).toList();
+    final process = message.blocks
+        .where((b) =>
+            b.isProcess &&
+            // Providers emit separator newlines on otherwise tool-only steps.
+            // They are not commentary boundaries and must not split one tool
+            // loop into rows (desktop `visibleProcess`).
+            (b is! TextBlock || b.text.trim().isNotEmpty))
+        .toList();
     final answer = message.blocks
         .where((b) => !b.isProcess && b is! ApprovalBlock)
         .toList();
@@ -206,6 +213,7 @@ class _WorkTranscript extends StatefulWidget {
 
 class _WorkTranscriptState extends State<_WorkTranscript> {
   Timer? _timer;
+  bool _outerExpanded = false;
   @override
   void initState() {
     super.initState();
@@ -249,22 +257,38 @@ class _WorkTranscriptState extends State<_WorkTranscript> {
             _ => 'Worked',
           };
     final compaction = widget.blocks.whereType<CompactionBlock>().lastOrNull;
+    // While a call is in flight its shimmer rides on the deepest visible
+    // label describing the work: here, on "Working for …" itself whenever the
+    // transcript is collapsed and the running tool stays hidden inside.
+    final working =
+        message.streaming &&
+        (widget.blocks.isEmpty ||
+            widget.blocks.whereType<ToolBlock>().any(
+              (tool) => tool.state == ToolState.running,
+            ));
+    final label = Text(
+      '$verb${duration == null ? '' : ' for $duration'}',
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: MukaiColors.of(context).textMuted,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           MukaiDisclosure(
-            title: Text(
-              '$verb${duration == null ? '' : ' for $duration'}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: MukaiColors.of(context).textMuted,
-              ),
-            ),
+            title: working && !_outerExpanded
+                ? MukaiShimmerText(child: label)
+                : label,
+            onExpandedChanged: (expanded) =>
+                setState(() => _outerExpanded = expanded),
             builder: (_) => Padding(
               padding: const EdgeInsets.only(left: 12, bottom: 10),
               child: widget.blocks.isEmpty
-                  ? const Text('Thinking…')
+                  ? (message.streaming
+                        ? const MukaiShimmerText(child: Text('Thinking…'))
+                        : const Text('Thinking…'))
                   : _WorkTranscriptContent(
                       blocks: widget.blocks,
                       bots: widget.bots,
@@ -309,8 +333,13 @@ bool _isReasoning(ChatBlock block) =>
 
 bool _isToolPart(ChatBlock block) => _isWork(block) && !_isReasoning(block);
 
+// Only image-viewing tools are a media run; browser screenshots keep their
+// surrounding group, matching desktop `mediaActivityKind`.
 String? _mediaKind(ChatBlock block) =>
-    block is ToolBlock && block.previewHref != null ? 'image' : null;
+    block is ToolBlock &&
+            block.previewHref?.startsWith('mukai-activity:') == true
+        ? 'image'
+        : null;
 
 List<Object> _workRuns(List<ChatBlock> blocks) {
   final runs = <Object>[];
@@ -328,7 +357,9 @@ List<Object> _workRuns(List<ChatBlock> blocks) {
         group != null &&
         (_isReasoning(block) ||
             firstTool == null ||
-            _mediaKind(block) == _mediaKind(firstTool));
+            _mediaKind(block) == _mediaKind(firstTool) ||
+            // Tool parts whose activity is missing still belong to the loop.
+            (block is ToolBlock && (block.id == null || block.id!.isEmpty)));
     if (joins) {
       group.add(block);
     } else {
@@ -338,18 +369,30 @@ List<Object> _workRuns(List<ChatBlock> blocks) {
   return runs;
 }
 
+// Completed group labels mirror the desktop `completedLabel` mapping: the
+// plural or tool-level summary used once a work run is finished.
 const _groupCompletedLabels = <String, String>{
   'Read a file': 'Read files',
-  'Wrote a file': 'Wrote files',
-  'Updated a file': 'Updated files',
+  'Wrote a file': 'Edited files',
+  'Updated a file': 'Edited files',
   'Created a folder': 'Created folders',
+  'Explored the workspace': 'Listed files',
   'Searched files': 'Searched files',
-  'Sent an update': 'Sent updates',
+  'Sent an update': 'Used tools',
   'Received your decision': 'Reviewed requests',
   'Received your answer': 'Reviewed requests',
-  'Viewed an image': 'Viewed images',
+  'Viewed an image': 'Inspected images',
   'Ran a command': 'Ran commands',
   'Searched the web': 'Searched the web',
+  'Browser': 'Used browser',
+  'Computer use': 'Used computer',
+  'Image': 'Inspected images',
+  'Media': 'Inspected media',
+  'Manage bot': 'Managed bots',
+  'Manage pursuit': 'Managed pursuits',
+  'System': 'Checked saved variables',
+  'Skills': 'Read skills',
+  'Ask': 'Reviewed requests',
   'Activity': 'Used tools',
 };
 
@@ -395,7 +438,7 @@ String _workGroupLabel(List<ChatBlock> group, bool active) {
 
 /// The middle dropdown: one label for everything the model did between
 /// commentary breaks, wrapping the individual tool disclosures inside.
-class _WorkGroupDisclosure extends StatelessWidget {
+class _WorkGroupDisclosure extends StatefulWidget {
   const _WorkGroupDisclosure({
     super.key,
     required this.group,
@@ -408,7 +451,16 @@ class _WorkGroupDisclosure extends StatelessWidget {
   final List<MukaiBot> bots;
 
   @override
+  State<_WorkGroupDisclosure> createState() => _WorkGroupDisclosureState();
+}
+
+class _WorkGroupDisclosureState extends State<_WorkGroupDisclosure> {
+  bool _open = false;
+
+  @override
   Widget build(BuildContext context) {
+    final group = widget.group;
+    final active = widget.active;
     final colors = MukaiColors.of(context);
     final style = Theme.of(
       context,
@@ -429,6 +481,17 @@ class _WorkGroupDisclosure extends StatelessWidget {
         : media
         ? Icons.image_outlined
         : Icons.description_outlined;
+    final label = Text(
+      _workGroupLabel(group, active),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: style,
+    );
+    // The running tool's shimmer rides up onto this label while the group
+    // stays collapsed and its individual tool rows are hidden.
+    final running = group
+        .whereType<ToolBlock>()
+        .any((tool) => tool.state == ToolState.running);
     return MukaiDisclosure(
       title: Row(
         mainAxisSize: MainAxisSize.min,
@@ -442,12 +505,9 @@ class _WorkGroupDisclosure extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Flexible(
-            child: Text(
-              _workGroupLabel(group, active),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: style,
-            ),
+            child: running && !_open
+                ? MukaiShimmerText(child: label)
+                : label,
           ),
           if (problems > 0) ...[
             const SizedBox(width: 6),
@@ -455,9 +515,10 @@ class _WorkGroupDisclosure extends StatelessWidget {
           ],
         ],
       ),
+      onExpandedChanged: (expanded) => setState(() => _open = expanded),
       builder: (_) => Padding(
         padding: const EdgeInsets.only(left: 12, bottom: 6),
-        child: _BlockStack(blocks: group, bots: bots),
+        child: _BlockStack(blocks: group, bots: widget.bots),
       ),
     );
   }

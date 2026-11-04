@@ -7,6 +7,7 @@ import 'package:mukai_flutter/design/appearance.dart';
 import 'package:mukai_flutter/design/theme.dart';
 import 'package:mukai_flutter/design/disclosure.dart';
 import 'package:mukai_flutter/domain/models.dart';
+import 'package:mukai_flutter/features/chat/widgets/file_preview.dart';
 import 'package:mukai_flutter/features/chat/widgets/message_bubble.dart';
 import 'package:mukai_flutter/features/chat/widgets/ai_queue_notice.dart';
 
@@ -203,6 +204,155 @@ void main() {
       await tester.tap(find.text('Worked for 1m 3s'));
       await frames(tester);
       expect(find.text('Read files'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'whitespace commentary never splits a tool loop and images only open on tap',
+    (tester) async {
+      final client = MukaiApiClient('https://mukai.test', 'fixture');
+      addTearDown(client.close);
+      final repo = ApiRepository(client);
+      final message = repo.messageFromJson({
+        'id': 'loop',
+        'botId': 'bot',
+        'role': 'assistant',
+        'status': 'complete',
+        'createdAt': '2026-11-03T10:00:00Z',
+        'startedAt': '2026-11-03T10:00:00Z',
+        'finishedAt': '2026-11-03T10:01:03Z',
+        'parts': [
+          {'id': 't1', 'type': 'tool', 'activityId': 'cmd1'},
+          {'id': 'nl', 'type': 'text', 'text': ' \n '},
+          {'id': 't2', 'type': 'tool', 'activityId': 'cmd2'},
+          {'id': 't3', 'type': 'tool', 'activityId': 'img1'},
+          {'id': 't4', 'type': 'tool', 'activityId': 'img2'},
+          {'id': 't5', 'type': 'tool', 'activityId': 'cmd3'},
+          {'id': 'answer', 'type': 'text', 'text': 'Here is the final answer.'},
+        ],
+        'activity': [
+          {'id': 'cmd1', 'tool': 'terminal', 'action': 'run', 'status': 'complete'},
+          {'id': 'cmd2', 'tool': 'terminal', 'action': 'run', 'status': 'complete'},
+          {'id': 'img1', 'tool': 'media', 'action': 'view_image', 'status': 'complete'},
+          {'id': 'img2', 'tool': 'media', 'action': 'view_image', 'status': 'complete'},
+          {'id': 'cmd3', 'tool': 'terminal', 'action': 'run', 'status': 'complete'},
+        ],
+      }, 'history');
+      await tester.pumpWidget(
+        app(MessageView(message: message, bots: const [])),
+      );
+      await frames(tester);
+      await tester.tap(find.text('Worked for 1m 3s'));
+      await frames(tester);
+      // The whitespace commentary between the commands is not a boundary: the
+      // first loop merges into one group, the images form their own run,
+      // and only the image break starts a third command group.
+      expect(find.text('Ran commands'), findsNWidgets(2));
+      expect(find.text('Viewed 2 images'), findsOneWidget);
+      expect(find.text('View image'), findsNothing);
+      await tester.tap(find.text('Ran commands').first);
+      await frames(tester);
+      expect(find.text('Ran a command'), findsNWidgets(2));
+      await tester.tap(find.text('Viewed 2 images'));
+      await frames(tester);
+      // Desktop keeps the picture out of the transcript: image rows are
+      // buttons that open the preview on demand.
+      expect(find.text('View image'), findsNWidgets(2));
+      expect(find.byType(ChatImagePreview), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a running call shimmers the outer label, then the collapsed group, then the tool',
+    (tester) async {
+      final client = MukaiApiClient('https://mukai.test', 'fixture');
+      addTearDown(client.close);
+      final repo = ApiRepository(client);
+      ChatMessage message(String status) => repo.messageFromJson({
+        'id': 'shimmer',
+        'botId': 'bot',
+        'role': 'assistant',
+        'status': status,
+        'createdAt': '2026-11-03T10:00:00Z',
+        'startedAt': '2026-11-03T10:00:00Z',
+        'finishedAt': status == 'complete' ? '2026-11-03T10:01:03Z' : null,
+        'parts': [
+          {'id': 'tool-part', 'type': 'tool', 'activityId': 'tool-call'},
+          if (status == 'complete') ...[
+            {'id': 'answer', 'type': 'text', 'text': 'Here is the answer.'},
+          ],
+        ],
+        'activity': [
+          {
+            'id': 'tool-call',
+            'tool': 'file_operations',
+            'action': 'read_file',
+            'summary': 'Read launch notes',
+            'status': status == 'complete' ? 'complete' : 'running',
+          },
+        ],
+      }, 'history');
+      await tester.pumpWidget(
+        app(MessageView(message: message('streaming'), bots: const [])),
+      );
+      await frames(tester);
+      // Everything collapsed: the hidden tool passes its shimmer up to the
+      // only visible description of the work, "Working for …".
+      expect(find.byType(ShaderMask), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.textContaining('Working for'),
+          matching: find.byType(ShaderMask),
+        ),
+        findsOneWidget,
+      );
+      // Opening the outer transcript hands the shimmer to the still-collapsed
+      // group label (the live label of an active run is its running tool).
+      await tester.tap(find.textContaining('Working for'));
+      await frames(tester);
+      expect(
+        find.ancestor(
+          of: find.textContaining('Working for'),
+          matching: find.byType(ShaderMask),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(ShaderMask), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('Reading a file'),
+          matching: find.byType(ShaderMask),
+        ),
+        findsOneWidget,
+      );
+      // Opening the group lets the individual tool row wear its own shimmer.
+      await tester.tap(find.text('Reading a file'));
+      await frames(tester);
+      expect(find.text('Reading a file'), findsNWidgets(2));
+      expect(
+        find.ancestor(
+          of: find.text('Reading a file').first,
+          matching: find.byType(ShaderMask),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(
+          of: find.text('Reading a file').last,
+          matching: find.byType(ShaderMask),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(ShaderMask), findsOneWidget);
+      // Finished work never shimmers anywhere.
+      await tester.pumpWidget(
+        app(MessageView(message: message('complete'), bots: const [])),
+      );
+      await frames(tester);
+      expect(find.text('Worked for 1m 3s'), findsOneWidget);
+      expect(find.byType(ShaderMask), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

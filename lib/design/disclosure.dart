@@ -126,10 +126,15 @@ class MukaiDisclosure extends StatefulWidget {
     required this.title,
     required this.builder,
     this.preview,
+    this.onExpandedChanged,
   });
   final Widget title;
   final WidgetBuilder builder;
   final Widget? preview;
+
+  /// Lets ancestors mirror the open/closed state so they can, for example,
+  /// wear a running child's shimmer while this disclosure hides it.
+  final void Function(bool expanded)? onExpandedChanged;
   @override
   State<MukaiDisclosure> createState() => _MukaiDisclosureState();
 }
@@ -145,7 +150,10 @@ class _MukaiDisclosureState extends State<MukaiDisclosure> {
         expanded: _expanded,
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => setState(() => _expanded = !_expanded),
+          onTap: () => setState(() {
+            _expanded = !_expanded;
+            widget.onExpandedChanged?.call(_expanded);
+          }),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 44),
             child: Padding(
@@ -189,5 +197,62 @@ class _MukaiDisclosureState extends State<MukaiDisclosure> {
         child: Builder(builder: widget.builder),
       ),
     ],
+  );
+}
+
+/// Skeleton shimmer for a label that represents work in progress. Wrap it
+/// around whichever label is the deepest *visible* description of the running
+/// work: the tool row when it shows, or the owning disclosure when the tool is
+/// collapsed inside it.
+class MukaiShimmerText extends StatefulWidget {
+  const MukaiShimmerText({super.key, required this.child});
+  final Widget child;
+  @override
+  State<MukaiShimmerText> createState() => _MukaiShimmerTextState();
+}
+
+class _MukaiShimmerTextState extends State<MukaiShimmerText>
+    with SingleTickerProviderStateMixin {
+  late final _motion = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _motion.stop();
+    } else if (!_motion.isAnimating) {
+      _motion.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _motion,
+    child: widget.child,
+    builder: (context, child) => MediaQuery.disableAnimationsOf(context)
+        ? child!
+        : ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => LinearGradient(
+              begin: Alignment(-3 + _motion.value * 6, 0),
+              end: Alignment(-1 + _motion.value * 6, 0),
+              colors: const [
+                Color(0x66FFFFFF),
+                Colors.white,
+                Color(0x66FFFFFF),
+              ],
+              stops: const [0, .5, 1],
+              tileMode: TileMode.clamp,
+            ).createShader(bounds),
+            child: child,
+          ),
   );
 }

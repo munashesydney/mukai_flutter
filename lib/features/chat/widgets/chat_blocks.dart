@@ -158,7 +158,7 @@ class _ToolCard extends StatelessWidget {
           ],
           Flexible(
             child: block.state == ToolState.running
-                ? _ShimmerText(child: label)
+                ? MukaiShimmerText(child: label)
                 : label,
           ),
         ],
@@ -172,16 +172,12 @@ class _ToolCard extends StatelessWidget {
       ),
     );
     if (block.previewHref == null) return disclosure;
+    // Desktop keeps image rows as a plain button that opens the preview;
+    // the picture never sits inline in the chat transcript.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         disclosure,
-        ChatImagePreview(
-          href: block.previewHref!,
-          name: block.previewHref!.startsWith('mukai-activity:')
-              ? 'Viewed image'
-              : 'Screenshot',
-        ),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
@@ -226,59 +222,6 @@ class _CompactionStatus extends StatelessWidget {
         ),
       ],
     ),
-  );
-}
-
-class _ShimmerText extends StatefulWidget {
-  const _ShimmerText({required this.child});
-  final Widget child;
-  @override
-  State<_ShimmerText> createState() => _ShimmerTextState();
-}
-
-class _ShimmerTextState extends State<_ShimmerText>
-    with SingleTickerProviderStateMixin {
-  late final _motion = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1600),
-  );
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _motion.stop();
-    } else if (!_motion.isAnimating) {
-      _motion.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    _motion.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _motion,
-    child: widget.child,
-    builder: (context, child) => MediaQuery.disableAnimationsOf(context)
-        ? child!
-        : ShaderMask(
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (bounds) => LinearGradient(
-              begin: Alignment(-3 + _motion.value * 6, 0),
-              end: Alignment(-1 + _motion.value * 6, 0),
-              colors: const [
-                Color(0x66FFFFFF),
-                Colors.white,
-                Color(0x66FFFFFF),
-              ],
-              stops: const [0, .5, 1],
-              tileMode: TileMode.clamp,
-            ).createShader(bounds),
-            child: child,
-          ),
   );
 }
 
