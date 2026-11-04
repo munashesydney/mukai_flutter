@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'sidebar_canvas.dart';
 
 import '../design/appearance.dart';
+import '../core/push_notifications.dart';
 import '../design/widgets.dart';
 import '../domain/models.dart';
 import '../features/chat/chat_screen.dart';
@@ -17,7 +18,8 @@ import '../features/connected/connected_settings_screen.dart';
 import 'scope.dart';
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, this.onDisconnect});
+  const HomeShell({super.key, this.onDisconnect, this.pushTarget});
+  final PushTarget? pushTarget;
   final VoidCallback? onDisconnect;
 
   @override
@@ -35,6 +37,68 @@ class _HomeShellState extends State<HomeShell> {
   String _kind = 'private';
   String? _chatTitle;
   List<String> _memberBotIds = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pushTarget != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openPushTarget(widget.pushTarget!);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.pushTarget != null &&
+        widget.pushTarget != oldWidget.pushTarget) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openPushTarget(widget.pushTarget!);
+      });
+    }
+  }
+
+  int _pushNavigation = 0;
+  Future<void> _openPushTarget(PushTarget target) async {
+    final navigation = ++_pushNavigation;
+    final session = MukaiScope.sessionOf(context);
+    try {
+      await session.loadRecents();
+      if (!mounted || navigation != _pushNavigation) return;
+      if (!session.workspaces.any((item) => item.id == target.workspaceId)) {
+        return;
+      }
+      if (session.workspace.id != target.workspaceId) {
+        await session.selectWorkspace(target.workspaceId);
+      }
+      await session.loadRecents();
+      if (!mounted || session.workspace.id != target.workspaceId) return;
+      var conversation = session.remote?.allConversations
+          .where((item) => item.id == target.conversationId)
+          .firstOrNull;
+      if (conversation == null &&
+          session.api != null &&
+          session.remote != null) {
+        final raw = Map<String, dynamic>.from(
+          await session.api!.request(
+                '/conversations/${Uri.encodeComponent(target.conversationId)}',
+              )
+              as Map,
+        );
+        if (raw['workspaceId'] != target.workspaceId) return;
+        conversation = session.remote!.conversationFromJson(raw);
+      }
+      if (mounted &&
+          navigation == _pushNavigation &&
+          session.workspace.id == target.workspaceId &&
+          conversation != null) {
+        _openConversation(conversation);
+      }
+    } catch (_) {
+      /* A deleted/offline conversation remains in the user's notification history. */
+    }
+  }
 
   void _openSidebar() {
     FocusManager.instance.primaryFocus?.unfocus();
@@ -217,6 +281,9 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _buildShell(BuildContext context) {
     final session = MukaiScope.sessionOf(context);
+    MukaiScope.pushOf(
+      context,
+    )?.visible(_bot == null ? null : session.conversationId);
     final Widget body;
     if (_bot != null) {
       body = ChatScreen(

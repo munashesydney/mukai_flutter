@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-
 import '../../app/scope.dart';
+import '../settings/notifications_sheet.dart';
+
 import '../../design/widgets.dart';
 import '../settings/appearance_sheet.dart';
 import 'connected_widgets.dart';
@@ -62,6 +63,20 @@ class ConnectedSettingsScreen extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (MukaiScope.pushOf(context) case final push?)
+                      ConnectedSection(
+                        'Notifications',
+                        children: [
+                          MukaiRow(
+                            title: 'Push notifications',
+                            leading: const Icon(Icons.notifications_outlined),
+                            onTap: () => showMukaiSheet<void>(
+                              context: context,
+                              builder: (_) => NotificationsSheet(push: push),
+                            ),
+                          ),
+                        ],
+                      ),
                     ConnectedSection(
                       'Synced with Mukai',
                       children: <Widget>[

@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/connection_store.dart';
+import '../core/push_notifications.dart';
 import '../data/api/api_client.dart';
 import '../data/api/api_repository.dart';
 import '../data/demo/demo_repository.dart';
@@ -28,9 +30,11 @@ class MukaiApp extends StatefulWidget {
   State<MukaiApp> createState() => _MukaiAppState();
 }
 
-class _MukaiAppState extends State<MukaiApp> {
+class _MukaiAppState extends State<MukaiApp> with WidgetsBindingObserver {
   late SessionController _session;
   final _messenger = GlobalKey<ScaffoldMessengerState>();
+  late final MobilePushController _push;
+  PushTarget? _pushTarget;
   bool _authenticated = false;
   bool _restoring = false;
   String _url = '';
@@ -47,9 +51,26 @@ class _MukaiAppState extends State<MukaiApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _session = widget.session ?? SessionController(MukaiDemoRepository());
+    _push = MobilePushController(
+      onOpen: (target) {
+        if (mounted && _authenticated) setState(() => _pushTarget = target);
+      },
+    );
     widget.appearance.hydrate();
     if (widget.connectionStore != null) _restore();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final api = _session.api;
+    if (state == AppLifecycleState.resumed &&
+        _authenticated &&
+        !_disconnecting &&
+        api != null) {
+      unawaited(_push.connect(api));
+    }
   }
 
   MukaiApiClient? _prepared;
@@ -141,6 +162,8 @@ class _MukaiAppState extends State<MukaiApp> {
         !identical(_session.api, api)) {
       return;
     }
+    unawaited(_push.disconnect());
+    _pushTarget = null;
     final previous = _session;
     if (forgetSession && _saved != null) {
       _saved = StoredConnection(
@@ -243,6 +266,7 @@ class _MukaiAppState extends State<MukaiApp> {
         _url = api.serverUrl;
         _error = null;
       });
+      unawaited(_push.connect(api));
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (previous != widget.session) previous.dispose();
       });
@@ -265,6 +289,12 @@ class _MukaiAppState extends State<MukaiApp> {
   Future<void> _disconnect() async {
     if (_disconnecting) return;
     _disconnecting = true;
+    try {
+      await _push.disconnect();
+    } catch (_) {
+      // Server logout still revokes the device session if local cleanup fails.
+    }
+    _pushTarget = null;
     try {
       final api = _session.api;
       if (api != null) {
@@ -303,6 +333,8 @@ class _MukaiAppState extends State<MukaiApp> {
   @override
   void dispose() {
     _prepared?.close();
+    WidgetsBinding.instance.removeObserver(this);
+    _push.dispose();
     if (_session != widget.session) _session.dispose();
     super.dispose();
   }
@@ -311,6 +343,7 @@ class _MukaiAppState extends State<MukaiApp> {
   Widget build(BuildContext context) => MukaiScope(
     appearance: widget.appearance,
     session: _session,
+    push: _push,
     child: ListenableBuilder(
       listenable: widget.appearance,
       builder: (context, _) {
@@ -331,7 +364,11 @@ class _MukaiAppState extends State<MukaiApp> {
                   body: Center(child: CircularProgressIndicator.adaptive()),
                 )
               : _authenticated
-              ? HomeShell(key: ObjectKey(_session), onDisconnect: _disconnect)
+              ? HomeShell(
+                  key: ObjectKey(_session),
+                  onDisconnect: _disconnect,
+                  pushTarget: _pushTarget,
+                )
               : AuthScreen(
                   onAuthenticated: _demoConnected,
                   onPrepare: widget.session == null ? _prepare : null,

@@ -1,20 +1,26 @@
 import Flutter
 import UIKit
 import QuickLook
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let filePreview = MukaiFilePreview()
+  private let pushNotifications = MukaiPushNotifications()
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MukaiPushNotifications") {
+      pushNotifications.install(registrar.messenger())
+    }
     guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MukaiFilePreview") else { return }
     let channel = FlutterMethodChannel(name: "com.mukai.mobile/preview", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { [weak self] call, result in
@@ -27,6 +33,36 @@ import QuickLook
       DispatchQueue.main.async { self?.filePreview.open(bytes.data, name: name, result: result) }
     }
   }
+  override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+    pushNotifications.registered(token)
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: token)
+  }
+  override func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    pushNotifications.failed()
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+  }
+  override func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    if let payload = notification.request.content.userInfo["mukai"] as? [String: Any] {
+      if payload["type"] as? String == "pairing" {
+        pushNotifications.emit(payload); completionHandler([])
+      } else if pushNotifications.isVisible(payload) { completionHandler([]) }
+      else { completionHandler([.banner, .sound]) }
+    } else { super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler) }
+  }
+  override func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void) {
+    if let payload = response.notification.request.content.userInfo["mukai"] as? [String: Any] {
+      pushNotifications.emit(payload); completionHandler()
+    } else { super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler) }
+  }
+  override func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+    if let payload = userInfo["mukai"] as? [String: Any], payload["type"] as? String == "pairing" {
+      pushNotifications.emit(payload); completionHandler(.newData)
+    } else { super.application(application, didReceiveRemoteNotification: userInfo, fetchCompletionHandler: completionHandler) }
+  }
+
 }
 
 /// Quick Look keeps PDF, audio, video and other supported files inside iOS.
@@ -74,5 +110,81 @@ private final class MukaiFilePreview: NSObject, QLPreviewControllerDataSource, Q
   func previewControllerDidDismiss(_ controller: QLPreviewController) {
     if let directory = directory { try? FileManager.default.removeItem(at: directory) }
     self.controller = nil; fileURL = nil; directory = nil
+  }
+}
+
+/// Native APNs only; no Firebase SDK or credentials are embedded in the client.
+private final class MukaiPushNotifications {
+  private var channel: FlutterMethodChannel?
+  private var pendingRegistration: FlutterResult?
+  private var events: [[String: Any]] = []
+  private var visibleServer = ""
+  private var visibleConversation = ""
+  func install(_ messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: "com.mukai.mobile/push", binaryMessenger: messenger)
+    self.channel = channel
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+      switch call.method {
+      case "register":
+        guard self.pendingRegistration == nil else {
+          result(FlutterError(code: "registration_busy", message: "Notification registration is in progress.", details: nil)); return
+        }
+        self.pendingRegistration = result
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { allowed, _ in
+          DispatchQueue.main.async {
+            if allowed { UIApplication.shared.registerForRemoteNotifications() }
+            else { self.pendingRegistration?(["authorized": false]); self.pendingRegistration = nil }
+          }
+        }
+      case "drain": let queued = self.events; self.events.removeAll(); result(queued)
+      case "visible":
+        let args = call.arguments as? [String: String] ?? [:]
+        self.visibleServer = args["serverId"] ?? ""
+        self.visibleConversation = args["conversationId"] ?? ""
+        result(nil)
+      case "openSettings":
+        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+        result(nil)
+      case "clear":
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        result(nil)
+      default: result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+  private func environment() -> String {
+    // A distribution profile overrides Debug defaults; TestFlight uses production.
+    if let path = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+      let data = try? Data(contentsOf: path), let text = String(data: data, encoding: .isoLatin1),
+      let start = text.range(of: "<?xml"), let end = text.range(of: "</plist>"),
+      let xml = String(text[start.lowerBound..<end.upperBound]).data(using: .utf8),
+      let profile = try? PropertyListSerialization.propertyList(from: xml, format: nil) as? [String: Any],
+      let entitlements = profile["Entitlements"] as? [String: Any],
+      let value = entitlements["aps-environment"] as? String { return value == "production" ? "production" : "sandbox" }
+    return Bundle.main.object(forInfoDictionaryKey: "MukaiAPNSEnvironment") as? String == "production" ? "production" : "sandbox"
+  }
+  func registered(_ token: Data) {
+    let value: [String: Any] = ["authorized": true, "deviceToken": token.map { String(format: "%02x", $0) }.joined(), "environment": environment()]
+    if let result = pendingRegistration { pendingRegistration = nil; result(value) }
+    else { emit(value.merging(["type": "tokenChanged"]) { _, new in new }) }
+  }
+  func failed() {
+    pendingRegistration?(FlutterError(code: "apns_unavailable", message: "Apple notification registration failed. Check the app's signing and push capability.", details: nil))
+    pendingRegistration = nil
+  }
+  func isVisible(_ payload: [String: Any]) -> Bool {
+    return !visibleConversation.isEmpty && payload["serverId"] as? String == visibleServer && payload["conversationId"] as? String == visibleConversation
+  }
+  func emit(_ payload: [String: Any]) {
+    DispatchQueue.main.async {
+      let eventId = UUID().uuidString
+      var event = payload; event["nativeEventId"] = eventId
+      self.events.append(event)
+      if self.events.count > 32 { self.events.removeFirst() }
+      self.channel?.invokeMethod("event", arguments: event) { answer in
+        if answer as? Bool == true { self.events.removeAll { $0["nativeEventId"] as? String == eventId } }
+      }
+    }
   }
 }

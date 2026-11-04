@@ -111,3 +111,47 @@ The default unit/widget suite includes HTTP/SSE integration fixtures for routing
 fragmented streams, auth rejection, uploads/mutations, cancellation, ambiguous
 sends, draft preservation, and stale workspace responses. Demo injection remains
 available to widget tests; the production entry point always uses a real connection.
+
+## iPhone push notifications
+
+Native APNs notifications need no Firebase SDK and no recipient configuration.
+The publisher runs a separate notification relay holding the Apple `.p8`, enables
+Push Notifications for `com.mukai.mukaiFlutter` in their Apple Developer account,
+and signs with an updated provisioning profile. Users install the signed app,
+sign in to their own updated Mukai server, and grant notification permission.
+
+Configure the publisher's public HTTPS relay URL once when building:
+
+```sh
+python3 scripts/configure_push.py
+scripts/ios.sh run --dart-define=MUKAI_PUSH_RELAY_URL=https://YOUR-RELAY-HOST
+scripts/ios.sh build ipa --dart-define=MUKAI_PUSH_RELAY_URL=https://YOUR-RELAY-HOST
+```
+
+The backend's `MUKAI_PUSH_RELAY_URL` environment variable is a fallback for local
+builds without a compiled URL. For local relay development use a public HTTPS
+tunnel to the Mac's relay port; loopback/private destinations are deliberately
+blocked by the backend. A temporary tunnel requires updating the developer URL.
+Without a relay URL, normal app use continues and notification settings show that
+push is unavailable on this build.
+
+`native/ios/AppDelegate.swift`, `native/ios/Runner.entitlements`, and
+`scripts/configure_push.py` are tracked. Bootstrap installs them into the ignored
+native host along with remote-notification background mode. Development signing
+uses sandbox; distribution/TestFlight signing uses production. Run the config
+script again after regenerating the host. Provisioning must enable the same
+bundle ID and push environment; an unsigned build validates compilation only.
+
+Settings → Notifications provides a toggle, connection status, retry, iPhone
+settings link, and test notification. Pairing proves receipt of an APNs challenge
+before exposing a device-scoped delivery credential to the user's server.
+Management credentials stay in Keychain. Disconnect/toggle-off revokes the relay
+registration. Taps restore the correct workspace/chat; the currently visible chat
+suppresses foreground banners. Alert text is generic to keep chat contents off
+the relay/lock screen. Electron itself does not display push notifications.
+
+Run `scripts/ios.sh test test/push_notifications_test.dart` for local pairing,
+permission, tap validation/deduplication, revocation, and setup cancellation tests.
+A real signed iPhone build plus an Apple-issued APNs key is required for live
+sandbox and TestFlight delivery validation. The private relay project's README
+contains the full Apple key-generation, hosting, and acceptance-test checklist.

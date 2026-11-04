@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mukai_flutter/app/scope.dart';
+import 'package:mukai_flutter/core/push_notifications.dart';
+import 'package:mukai_flutter/features/chat/chat_screen.dart';
 import 'package:mukai_flutter/app/home_shell.dart';
 import 'package:mukai_flutter/data/api/api_client.dart';
 import 'package:mukai_flutter/data/api/api_repository.dart';
@@ -143,6 +145,16 @@ class _Server {
           result = runs.firstWhere(
             (run) => run['id'] == request.uri.queryParameters['runId'],
           );
+        case '/api/conversations/run-chat':
+          result = {
+            'id': 'run-chat',
+            'workspaceId': 'w',
+            'kind': 'pursuit_run',
+            'ownerBotId': 'scout',
+            'name': 'Background pursuit',
+            'botIds': ['scout'],
+            'updatedAt': '2026-11-03T00:00:00Z',
+          };
         case '/api/conversations/run-chat/messages':
           result = <dynamic>[
             {
@@ -273,6 +285,27 @@ Future<_Server> _open(
 }
 
 void main() {
+  testWidgets(
+    'push tap opens a pursuit conversation absent from recent chat lists',
+    (tester) async {
+      final server = await _open(
+        tester,
+        const HomeShell(pushTarget: PushTarget('w', 'run-chat', 'scout')),
+      );
+      await _frames(tester);
+      expect(
+        server.requests.any((r) => r.path == '/api/conversations/run-chat'),
+        true,
+      );
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(
+        tester.widget<ChatScreen>(find.byType(ChatScreen)).conversationId,
+        'run-chat',
+      );
+      expect(tester.takeException(), isNull);
+      await server.cleanup!();
+    },
+  );
   testWidgets(
     'Updates appears with its inbox count and disappears once the inbox is empty',
     (tester) async {

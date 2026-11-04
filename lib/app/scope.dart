@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../design/appearance.dart';
+import '../core/push_notifications.dart';
 import '../state/session_controller.dart';
 
 class MukaiScope extends InheritedWidget {
@@ -15,11 +16,13 @@ class MukaiScope extends InheritedWidget {
     super.key,
     required this.session,
     required this.appearance,
+    this.push,
     required super.child,
   });
 
   final SessionController session;
   final AppearanceController appearance;
+  final MobilePushController? push;
 
   static MukaiScope _read(BuildContext context) {
     final MukaiScope? scope = context
@@ -27,6 +30,9 @@ class MukaiScope extends InheritedWidget {
     assert(scope != null, 'No MukaiScope found — wrap the app in MukaiApp.');
     return scope!;
   }
+
+  static MobilePushController? pushOf(BuildContext context) =>
+      _read(context).push;
 
   static SessionController sessionOf(BuildContext context) =>
       _read(context).session;

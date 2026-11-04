@@ -116,6 +116,8 @@ shutil.copytree(
 )
 PYPLIST
 
+python3 scripts/configure_push.py
+
 flutter pub get
 flutter analyze
 flutter test

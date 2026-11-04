@@ -21,6 +21,7 @@ test/widget_test.dart
 native/ios/*
 !native/ios/AppIcon.appiconset/
 !native/ios/AppDelegate.swift
+!native/ios/Runner.entitlements
 
 # IDE
 .idea/
