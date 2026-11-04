@@ -102,28 +102,28 @@ class _BotConversationListState extends State<BotConversationList> {
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
-                                vertical: 14,
+                                vertical: 18,
                               ),
                               child: Row(
                                 children: [
                                   GhostAvatar(
                                     mascot: bot.mascot,
                                     identity: bot.identity,
-                                    size: 30,
+                                    size: 56,
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 12),
                                   Icon(
                                     open
                                         ? Icons.keyboard_arrow_down_rounded
                                         : Icons.chevron_right_rounded,
-                                    size: 18,
+                                    size: 22,
                                     color: colors.textSoft,
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       bot.name,
-                                      style: text.titleSmall,
+                                      style: text.titleLarge,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -134,7 +134,7 @@ class _BotConversationListState extends State<BotConversationList> {
                                       message: 'Main bot',
                                       child: Icon(
                                         Icons.star_rounded,
-                                        size: 13,
+                                        size: 17,
                                         color: colors.textSoft,
                                       ),
                                     ),
@@ -149,13 +149,15 @@ class _BotConversationListState extends State<BotConversationList> {
                         icon: Icons.add_comment_outlined,
                         tooltip: 'New conversation with ${bot.name}',
                         border: false,
+                        size: 52,
+                        iconSize: 26,
                         onTap: () => widget.onNewConversation(bot),
                       ),
                     ],
                   ),
                   if (open)
                     Padding(
-                      padding: const EdgeInsets.only(left: 30, bottom: 10),
+                      padding: const EdgeInsets.only(left: 36, bottom: 10),
                       child: Container(
                         decoration: BoxDecoration(
                           border: Border(
