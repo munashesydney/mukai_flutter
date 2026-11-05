@@ -90,8 +90,9 @@ class APNsBridge implements PushNative {
 }
 
 class RelayException implements Exception {
-  const RelayException(this.status);
+  const RelayException(this.status, [this.code]);
   final int status;
+  final String? code;
 }
 
 typedef RelayCall =
@@ -117,13 +118,24 @@ Future<Map<String, dynamic>> relayCall(
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(body));
     final response = await request.close().timeout(const Duration(seconds: 10));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw RelayException(response.statusCode);
-    }
     final bytes = <int>[];
     await for (final chunk in response.timeout(const Duration(seconds: 10))) {
       bytes.addAll(chunk);
       if (bytes.length > 8192) throw const RelayException(502);
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String? code;
+      try {
+        final value = jsonDecode(utf8.decode(bytes));
+        final candidate = value is Map ? value['code'] : null;
+        if (candidate is String &&
+            RegExp(r'^apns_[A-Za-z_]{1,64}$').hasMatch(candidate)) {
+          code = candidate;
+        }
+      } catch (_) {
+        /* An HTML proxy error is still reported by HTTP status. */
+      }
+      throw RelayException(response.statusCode, code);
     }
     return Map<String, dynamic>.from(jsonDecode(utf8.decode(bytes)) as Map);
   } finally {
@@ -175,8 +187,50 @@ class MobilePushController extends ChangeNotifier {
   String? _attempt;
   final List<Map<String, dynamic>> _pendingEvents = [];
   final Set<String> _seen = {};
+  void _log(String message) {
+    if (!kDebugMode) return;
+    final time = DateTime.now().toIso8601String().substring(11, 19);
+    final line = '$time $message';
+    debugPrint('[Mukai push] $line');
+  }
+
+  String _failure(Object error) {
+    if (error is MissingPluginException) {
+      return 'Native push bridge missing; rebuild and reinstall the iOS app.';
+    }
+    if (error is PlatformException) {
+      if (error.code == 'apns_unavailable' && error.details is Map) {
+        final details = error.details as Map;
+        final reason = (details['reason'] as String? ?? '').replaceAll(
+          RegExp(r'\s+'),
+          ' ',
+        );
+        return 'Apple registration: ${details['domain']} ${details['code']} ${reason.length > 200 ? reason.substring(0, 200) : reason}';
+      }
+      return 'iOS error: ${error.code}';
+    }
+    if (error is SocketException) {
+      return error.message.toLowerCase().contains('host lookup')
+          ? 'DNS lookup failed; the relay hostname could not be resolved.'
+          : 'Network connection failed (OS ${error.osError?.errorCode ?? 'unknown'}).';
+    }
+    if (error is HandshakeException) return 'HTTPS/TLS handshake failed.';
+    if (error is TimeoutException) return 'Timed out.';
+    if (error is RelayException) {
+      return 'Relay HTTP ${error.status}${error.code == null ? '' : ': ${error.code}'}';
+    }
+    if (error is ApiException) {
+      return 'Mukai API HTTP ${error.statusCode ?? 'error'}';
+    }
+    if (error is FormatException) {
+      return 'Invalid notification configuration or response.';
+    }
+    return 'Unexpected ${error.runtimeType}';
+  }
+
   void _status(String value) {
     status = value;
+    _log(value);
     if (!_disposed) notifyListeners();
   }
 
@@ -240,15 +294,24 @@ class MobilePushController extends ChangeNotifier {
 
   Future<void> _connect(MukaiApiClient api, int generation) async {
     if (!native.supported) return;
+    var step = 'Loading notification settings';
+    void progress(String message) {
+      step = message;
+      _log(message);
+    }
+
     try {
+      progress(step);
       await _load();
       _check(generation);
+      progress('Cleaning up old registrations');
       await _cleanup();
       _check(generation);
       if (!enabled) {
         _status('Notifications off');
         return;
       }
+      progress('Reading push configuration from Mukai');
       final config = Map<String, dynamic>.from(
         await api.request('/push/config') as Map,
       );
@@ -262,11 +325,16 @@ class MobilePushController extends ChangeNotifier {
         return;
       }
       final base = origin(configured);
+      _log(
+        'Relay: ${base.origin} (${relayUrl.isNotEmpty ? 'build override' : 'Mukai configuration'})',
+      );
+      progress('Reading queued notifications');
       for (final event in [..._pendingEvents, ...await native.drain()]) {
         _event(event);
       }
       _pendingEvents.clear();
       _status('Connecting notifications…');
+      progress('Registering this iPhone with Apple APNs');
       final apple = await native.register().timeout(
         const Duration(seconds: 25),
       );
@@ -277,6 +345,9 @@ class MobilePushController extends ChangeNotifier {
         _status('Allow notifications in iPhone Settings');
         return;
       }
+      _log(
+        'Apple registration succeeded (${apple['environment'] == 'production' ? 'production' : 'sandbox'})',
+      );
       var registration = _current;
       if (registration != null &&
           (registration['serverId'] != serverId ||
@@ -300,6 +371,7 @@ class MobilePushController extends ChangeNotifier {
                   (registration['registeredAt'] as int? ?? 0) >
               30 * 86400000;
       _box['current'] = registration;
+      progress('Saving pairing settings');
       await _save();
       _check(generation);
       if (needsProof) {
@@ -308,6 +380,7 @@ class MobilePushController extends ChangeNotifier {
         final proof = Completer<String>();
         _challenge = proof;
         final path = '/v1/devices/${registration['installationId']}';
+        progress('Sending pairing challenge to relay');
         await relay(base.resolve('$path/challenge'), 'POST', {
           'deviceToken': apple['deviceToken'],
           'environment': apple['environment'],
@@ -315,6 +388,7 @@ class MobilePushController extends ChangeNotifier {
           'attemptId': attempt,
         }, registration['manageToken'] as String);
         _check(generation);
+        progress('Waiting for Apple pairing notification');
         for (final event in await native.drain()) {
           _event(event);
         }
@@ -322,6 +396,7 @@ class MobilePushController extends ChangeNotifier {
           const Duration(seconds: 35),
         );
         _check(generation);
+        progress('Confirming pairing with relay');
         final confirmation = await relay(
           base.resolve('$path/confirm'),
           'POST',
@@ -345,6 +420,7 @@ class MobilePushController extends ChangeNotifier {
         await _save();
       }
       _check(generation);
+      progress('Registering delivery with Mukai');
       await api.request(
         '/push/devices',
         method: 'POST',
@@ -356,8 +432,9 @@ class MobilePushController extends ChangeNotifier {
       );
       _check(generation);
       _status('Notifications connected');
-    } catch (_) {
+    } catch (error) {
       if (!_disposed && generation == _generation) {
+        _log('$step failed: ${_failure(error)}');
         _status('Could not connect notifications. Try again.');
       }
     } finally {

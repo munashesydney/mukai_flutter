@@ -38,7 +38,7 @@ import UserNotifications
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: token)
   }
   override func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-    pushNotifications.failed()
+    pushNotifications.failed(error)
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
   override func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -169,8 +169,11 @@ private final class MukaiPushNotifications {
     if let result = pendingRegistration { pendingRegistration = nil; result(value) }
     else { emit(value.merging(["type": "tokenChanged"]) { _, new in new }) }
   }
-  func failed() {
-    pendingRegistration?(FlutterError(code: "apns_unavailable", message: "Apple notification registration failed. Check the app's signing and push capability.", details: nil))
+  func failed(_ error: Error) {
+    let failure = error as NSError
+    // This OS registration error contains no relay credentials or provider key.
+    NSLog("[Mukai push] APNs registration failed: %@ (%ld): %@", failure.domain, failure.code, failure.localizedDescription)
+    pendingRegistration?(FlutterError(code: "apns_unavailable", message: "Apple notification registration failed. Check the app's signing and push capability.", details: ["domain": failure.domain, "code": failure.code, "reason": failure.localizedDescription]))
     pendingRegistration = nil
   }
   func isVisible(_ payload: [String: Any]) -> Bool {

@@ -120,20 +120,20 @@ Push Notifications for `com.mukai.mukaiFlutter` in their Apple Developer account
 and signs with an updated provisioning profile. Users install the signed app,
 sign in to their own updated Mukai server, and grant notification permission.
 
-Configure the publisher's public HTTPS relay URL once when building:
+The updated backend supplies `https://mukai-relay.munashesydney.com` automatically.
+No relay URL build flag or environment variable is needed for ordinary builds:
 
 ```sh
 python3 scripts/configure_push.py
-scripts/ios.sh run --dart-define=MUKAI_PUSH_RELAY_URL=https://YOUR-RELAY-HOST
-scripts/ios.sh build ipa --dart-define=MUKAI_PUSH_RELAY_URL=https://YOUR-RELAY-HOST
+scripts/ios.sh run
+scripts/ios.sh build ipa
 ```
 
-The backend's `MUKAI_PUSH_RELAY_URL` environment variable is a fallback for local
-builds without a compiled URL. For local relay development use a public HTTPS
-tunnel to the Mac's relay port; loopback/private destinations are deliberately
-blocked by the backend. A temporary tunnel requires updating the developer URL.
-Without a relay URL, normal app use continues and notification settings show that
-push is unavailable on this build.
+For a custom relay, developers can override the backend default with its
+`MUKAI_PUSH_RELAY_URL` environment variable, or override the server-provided URL
+with `--dart-define=MUKAI_PUSH_RELAY_URL=https://YOUR-RELAY-HOST` when building
+Flutter. Local relay development needs a public HTTPS tunnel to the Mac's relay
+port; loopback/private destinations are deliberately blocked by the backend.
 
 `native/ios/AppDelegate.swift`, `native/ios/Runner.entitlements`, and
 `scripts/configure_push.py` are tracked. Bootstrap installs them into the ignored
@@ -152,6 +152,12 @@ the relay/lock screen. Electron itself does not display push notifications.
 
 Run `scripts/ios.sh test test/push_notifications_test.dart` for local pairing,
 permission, tap validation/deduplication, revocation, and setup cancellation tests.
-A real signed iPhone build plus an Apple-issued APNs key is required for live
-sandbox and TestFlight delivery validation. The private relay project's README
+A signed app with an Apple-issued APNs key is required for live delivery validation;
+TestFlight delivery must also be checked on a physical iPhone. The private relay project's README
 contains the full Apple key-generation, hosting, and acceptance-test checklist.
+
+Debug builds print connection stages and safe error details in the Flutter console
+as `[Mukai push]`. Relay failures include safe Apple reason codes when available;
+keys, tokens, and chat content are excluded. Build overrides take precedence over
+the server's URL; remove stale `--dart-define=MUKAI_PUSH_RELAY_URL=...` settings and
+rebuild the native app when changing that override.

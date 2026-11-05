@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mukai_flutter/core/push_notifications.dart';
 import 'package:mukai_flutter/data/api/api_client.dart';
@@ -20,6 +23,7 @@ class Native implements PushNative {
     sync: true,
   );
   bool authorized = true;
+  Object? registrationError;
   int registrations = 0, clears = 0;
   @override
   bool get supported => true;
@@ -28,6 +32,7 @@ class Native implements PushNative {
   @override
   Future<Map<String, dynamic>> register() async {
     registrations++;
+    if (registrationError != null) throw registrationError!;
     return {
       'authorized': authorized,
       'deviceToken': 'ab' * 32,
@@ -78,13 +83,22 @@ void main() {
   late List<PushTarget> opened;
   late List<String> relayCalls;
   bool proof = true;
+  Object? relayFailure;
+  late DebugPrintCallback originalDebugPrint;
+  late List<String> logs;
   setUp(() {
+    originalDebugPrint = debugPrint;
+    logs = [];
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
     native = Native();
     store = MemoryStore();
     api = Api();
     opened = [];
     relayCalls = [];
     proof = true;
+    relayFailure = null;
     push = MobilePushController(
       native: native,
       store: store,
@@ -92,6 +106,9 @@ void main() {
       relay: (uri, method, body, credential) async {
         relayCalls.add('$method ${uri.path}');
         expect(credential.length, 43);
+        if (uri.path.endsWith('/challenge') && relayFailure != null) {
+          throw relayFailure!;
+        }
         if (uri.path.endsWith('/challenge') && proof) {
           native.controller.add({
             'type': 'pairing',
@@ -110,6 +127,7 @@ void main() {
   tearDown(() {
     push.dispose();
     api.close();
+    debugPrint = originalDebugPrint;
   });
   test(
     'pairs through APNs proof and publishes only scoped delivery capability',
@@ -125,6 +143,58 @@ void main() {
       expect(api.calls, contains('POST /push/test'));
     },
   );
+  test(
+    'connection log identifies relay DNS failure without logging credentials',
+    () async {
+      relayFailure = const SocketException('Failed host lookup: relay.example');
+      await push.connect(api);
+      final log = logs.join('\n');
+      expect(
+        log,
+        contains('Relay: https://relay.example (Mukai configuration)'),
+      );
+      expect(
+        log,
+        contains(
+          'Sending pairing challenge to relay failed: DNS lookup failed',
+        ),
+      );
+      expect(
+        log,
+        isNot(contains(store.value['current']['manageToken'] as String)),
+      );
+      expect(log, isNot(contains('ab' * 32)));
+    },
+  );
+  test(
+    'connection log includes the native Apple registration reason',
+    () async {
+      native.registrationError = PlatformException(
+        code: 'apns_unavailable',
+        details: {
+          'domain': 'NSCocoaErrorDomain',
+          'code': 3000,
+          'reason': 'no valid aps-environment entitlement',
+        },
+      );
+      await push.connect(api);
+      expect(
+        logs.join('\n'),
+        contains(
+          'NSCocoaErrorDomain 3000 no valid aps-environment entitlement',
+        ),
+      );
+      expect(relayCalls, isEmpty);
+    },
+  );
+  test('console log exposes safe APNs error codes', () async {
+    relayFailure = const RelayException(503, 'apns_InvalidProviderToken');
+    await push.connect(api);
+    expect(
+      logs.join('\n'),
+      contains('Relay HTTP 503: apns_InvalidProviderToken'),
+    );
+  });
   test('permission denial never pairs or registers backend', () async {
     native.authorized = false;
     await push.connect(api);

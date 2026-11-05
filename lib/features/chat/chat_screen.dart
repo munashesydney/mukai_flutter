@@ -282,26 +282,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                         icon: const Icon(Icons.refresh_rounded),
                                         label: const Text('Retry response'),
                                       ),
-                                    if (session.api != null)
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: TextButton.icon(
-                                          onPressed: () => session.saveMessage(
-                                            thread[index],
-                                          ),
-                                          icon: Icon(
-                                            thread[index].saved
-                                                ? Icons.bookmark
-                                                : Icons.bookmark_border,
-                                            size: 16,
-                                          ),
-                                          label: Text(
-                                            thread[index].saved
-                                                ? 'Saved'
-                                                : 'Save',
-                                          ),
-                                        ),
-                                      ),
                                   ],
                                 ),
                           ),
