@@ -28,6 +28,8 @@ class _Server {
   final runs = <Map<String, dynamic>>[];
   final runQueries = <String?>[];
   final runPageQueries = <Map<String, String>>[];
+  final historyQueries = <Map<String, String>>[];
+  final extraBots = <Map<String, dynamic>>[];
   final runFollowups = <Map<String, dynamic>>[];
   Map<String, dynamic>? updateSource;
   String continueTarget = 'update-chat';
@@ -104,8 +106,38 @@ class _Server {
               'isMain': true,
               'avatar': 'muka-mascot-2-blue',
             },
+            ...extraBots,
           ];
         case '/api/conversations':
+          if (request.method == 'GET' &&
+              request.uri.queryParameters['kind'] == 'history') {
+            historyQueries.add(Map.of(request.uri.queryParameters));
+            final items =
+                chats
+                    .where(
+                      (chat) =>
+                          chat['kind'] == 'private' || chat['kind'] == 'bot',
+                    )
+                    .toList()
+                  ..sort(
+                    (a, b) => (b['updatedAt'] as String? ?? '').compareTo(
+                      a['updatedAt'] as String? ?? '',
+                    ),
+                  );
+            final offset = int.parse(
+              request.uri.queryParameters['cursor'] ?? '0',
+            );
+            final limit = int.parse(
+              request.uri.queryParameters['limit'] ?? '12',
+            );
+            result = {
+              'conversations': items.skip(offset).take(limit).toList(),
+              'nextCursor': offset + limit < items.length
+                  ? '${offset + limit}'
+                  : null,
+            };
+            break;
+          }
           result = request.method == 'POST'
               ? <String, dynamic>{
                   'id': 's1',
@@ -453,6 +485,101 @@ void main() {
     },
   );
 
+  testWidgets(
+    'sidebar runs follow the horizontal canvas without rising from below',
+    (tester) async {
+      const runId = 'sidebar-entrance-run';
+      final server = await _open(
+        tester,
+        const HomeShell(),
+        configure: (server) {
+          server.runs.add({
+            'id': runId,
+            'status': 'complete',
+            'conversationId': 'run-chat',
+            'snapshot': server.pursuit,
+          });
+        },
+      );
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      await tester.tap(find.text('Pursuits').hitTestable());
+      await _frames(tester);
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      await tester.tap(find.text('Launch a small thing').hitTestable());
+      await _frames(tester);
+      final row = find.byKey(const ValueKey('sidebar-run-$runId'));
+      await tester.ensureVisible(row);
+      await tester.pump();
+      await tester.tap(row);
+      await tester.pump();
+      final entering = tester.getTopLeft(find.byType(PursuitRunChat));
+      expect(entering.dy, closeTo(0, 1));
+      expect(entering.dx, greaterThan(0));
+      await tester.pump(const Duration(milliseconds: 170));
+      final halfway = tester.getTopLeft(find.byType(PursuitRunChat));
+      expect(halfway.dy, closeTo(0, 1));
+      expect(halfway.dx, lessThan(entering.dx));
+      await _frames(tester);
+      expect(tester.getTopLeft(find.byType(PursuitRunChat)).dx, closeTo(0, 1));
+      expect(tester.takeException(), isNull);
+      await server.cleanup!();
+    },
+  );
+
+  testWidgets(
+    'sidebar bot conversations show both overlapping participant icons',
+    (tester) async {
+      final server = await _open(
+        tester,
+        const HomeShell(),
+        configure: (server) {
+          server.extraBots.add({
+            'id': 'child',
+            'workspaceId': 'w',
+            'name': 'Child',
+            'avatar': 'muka-mascot-3-purple',
+          });
+          server.chats.add({
+            'id': 'pair-chat',
+            'kind': 'bot',
+            'name': 'Delegated work',
+            'ownerBotId': 'scout',
+            'botIds': ['scout', 'child'],
+            'updatedAt': '2026-11-06T12:00:00Z',
+          });
+        },
+      );
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      final row = find.byKey(const ValueKey('sidebar-conversation-pair-chat'));
+      final avatars = find.descendant(
+        of: row,
+        matching: find.byType(GhostAvatar),
+      );
+      expect(avatars, findsNWidgets(2));
+      expect(
+        tester.widgetList<GhostAvatar>(avatars).map((avatar) => avatar.mascot),
+        ['muka-mascot-3-purple', 'muka-mascot-2-blue'],
+      );
+      expect(
+        tester.getTopLeft(avatars.at(1)).dx -
+            tester.getTopLeft(avatars.at(0)).dx,
+        20,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics && widget.properties.label == 'Child / Scout',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await server.cleanup!();
+    },
+  );
+
   testWidgets('sidebar conversation history expands twelve chats at a time', (
     tester,
   ) async {
@@ -492,8 +619,11 @@ void main() {
           )
           .first,
     );
+    final before = server.historyQueries.length;
     await tester.tap(find.text('Load more conversations'));
     await _frames(tester);
+    expect(server.historyQueries.length, before + 1);
+    expect(server.historyQueries.last['cursor'], '12');
     expect(
       find.byKey(const ValueKey('sidebar-conversation-chat-12')),
       findsOneWidget,

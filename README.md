@@ -55,6 +55,15 @@ requires no API key, administrator token, or pasted service credentials on the
 phone. OAuth discovery/registration is tested with isolated HTTP fixtures; a
 live Cloudflare application is needed to verify its policy and browser callback.
 
+## Conversation history pagination
+
+The shared backend supports `GET /conversations?workspaceId=...&kind=history&limit=12`
+with `{ conversations, nextCursor }`. Pass `cursor=...` to load the next page of
+private and bot-to-bot conversations. Flutter loads 12 at a time from the sidebar
+and preserves the loaded window on refresh. Existing Electron list requests keep
+their array responses. Deploy the updated `mukai` backend to enable server-side
+pagination; older servers still work through the legacy list endpoints.
+
 ## Connected surfaces
 
 - Workspace switching, real bots, recent private and bot conversations.

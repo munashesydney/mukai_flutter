@@ -509,6 +509,22 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   List<Conversation> get botConversations =>
       _repository.recentConversations(limit: null);
 
+  bool get hasMoreSidebarConversations => remote?.hasMoreConversations ?? false;
+  bool get loadingSidebarConversations =>
+      remote?.loadingMoreConversations ?? false;
+
+  Future<void> loadMoreSidebarConversations() async {
+    final repository = remote;
+    if (repository == null || repository.loadingMoreConversations) return;
+    final pending = repository.loadMoreConversations();
+    _emit();
+    try {
+      await pending;
+    } finally {
+      _emit();
+    }
+  }
+
   /// Sidebar history includes older chats and honors local interactions as well
   /// as the server's latest activity, scoped to the current workspace.
   List<Conversation> get sidebarConversations {

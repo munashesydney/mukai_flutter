@@ -56,6 +56,13 @@ class ApiRepository implements MukaiRepository {
   int _workspaceSettingsGeneration = 0, _workspaceSettingsRevision = 0;
   List<MukaiBot> _bots = [];
   List<Conversation> allConversations = [];
+  String? _historyCursor;
+  String? _historyWorkspaceId;
+  int _historyLoadedCount = 12;
+  int _historyLoadGeneration = 0;
+  bool loadingMoreConversations = false;
+  bool get hasMoreConversations => _historyCursor != null;
+
   List<Map<String, dynamic>> providers = [];
   Map<String, dynamic> approvals = {};
   final Map<String, List<Map<String, dynamic>>> _history = {};
@@ -86,9 +93,103 @@ class ApiRepository implements MukaiRepository {
         running: false,
       );
 
+  Future<({List<Map<String, dynamic>> items, String? cursor})> _historyPage(
+    String query, {
+    String? cursor,
+  }) async {
+    final value = await api.request(
+      '/conversations?$query&kind=history&limit=12'
+      '${cursor == null ? '' : '&cursor=${encoded(cursor)}'}',
+    );
+    if (value is List) {
+      // Older servers do not recognize kind=history. Keep them usable until
+      // the shared backend update is deployed.
+      final legacy = await Future.wait([
+        api.request('/conversations?$query&kind=private'),
+        api.request('/conversations?$query&kind=bot'),
+      ]);
+      return (
+        items: [...objects(legacy[0]), ...objects(legacy[1])],
+        cursor: null,
+      );
+    }
+    final page = object(value);
+    if (page['conversations'] is! List) {
+      throw const ApiException('Conversation history could not be loaded.');
+    }
+    return (
+      items: objects(page['conversations']),
+      cursor: page['nextCursor'] as String?,
+    );
+  }
+
+  Future<({List<Map<String, dynamic>> items, String? cursor})> _historyWindow(
+    String query,
+    int count,
+  ) async {
+    final items = <Map<String, dynamic>>[];
+    final cursors = <String>{};
+    String? cursor;
+    do {
+      final page = await _historyPage(query, cursor: cursor);
+      items.addAll(page.items);
+      cursor = page.cursor;
+      if (cursor != null && !cursors.add(cursor)) {
+        throw const ApiException(
+          'Conversation history returned a repeated page.',
+        );
+      }
+    } while (cursor != null && items.length < count);
+    return (items: items, cursor: cursor);
+  }
+
+  Future<void> loadMoreConversations() async {
+    final cursor = _historyCursor;
+    if (cursor == null ||
+        loadingMoreConversations ||
+        _historyWorkspaceId != workspaceId) {
+      return;
+    }
+    final selected = workspaceId;
+    final refresh = _refreshGeneration;
+    final generation = ++_historyLoadGeneration;
+    loadingMoreConversations = true;
+    try {
+      final page = await _historyPage(
+        'workspaceId=${encoded(selected!)}',
+        cursor: cursor,
+      );
+      if (workspaceId != selected ||
+          refresh != _refreshGeneration ||
+          generation != _historyLoadGeneration) {
+        return;
+      }
+      if (page.cursor == cursor) {
+        throw const ApiException(
+          'Conversation history returned a repeated page.',
+        );
+      }
+      final merged = {for (final chat in allConversations) chat.id: chat};
+      for (final value in page.items) {
+        final chat = conversationFromJson(value);
+        merged[chat.id] = chat;
+      }
+      allConversations = merged.values.toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      _historyLoadedCount += page.items.length;
+      _historyCursor = page.cursor;
+    } finally {
+      if (generation == _historyLoadGeneration) {
+        loadingMoreConversations = false;
+      }
+    }
+  }
+
   @override
   Future<void> refresh() async {
     final generation = ++_refreshGeneration;
+    _historyLoadGeneration++;
+    loadingMoreConversations = false;
     final settingsRevision = _workspaceSettingsRevision;
     final requestedWorkspace = workspaceId;
     final items = objects(await api.request('/workspaces'));
@@ -104,6 +205,8 @@ class ApiRepository implements MukaiRepository {
       workspaceId = null;
       _bots = [];
       allConversations = [];
+      _historyCursor = null;
+      _historyLoadedCount = 12;
       return;
     }
     final query = 'workspaceId=${encoded(selected)}';
@@ -112,8 +215,10 @@ class ApiRepository implements MukaiRepository {
       api.request('/conversations?$query'),
       api.request('/providers'),
       api.request('/approvals?$query'),
-      api.request('/conversations?$query&kind=private'),
-      api.request('/conversations?$query&kind=bot'),
+      _historyWindow(
+        query,
+        selected == _historyWorkspaceId ? _historyLoadedCount : 12,
+      ),
     ]);
     if (generation != _refreshGeneration || requestedWorkspace != workspaceId) {
       return;
@@ -132,12 +237,13 @@ class ApiRepository implements MukaiRepository {
             ? -1
             : 1,
       );
+    final history =
+        data[4] as ({List<Map<String, dynamic>> items, String? cursor});
+    _historyWorkspaceId = selected;
+    _historyCursor = history.cursor;
+    _historyLoadedCount = history.items.length;
     final all = <String, Map<String, dynamic>>{};
-    for (final c in [
-      ...objects(data[1]),
-      ...objects(data[4]),
-      ...objects(data[5]),
-    ]) {
+    for (final c in [...objects(data[1]), ...history.items]) {
       all[string(c['id'])] = c;
     }
     allConversations = all.values.map(conversationFromJson).toList()

@@ -42,6 +42,7 @@ class _HomeShellState extends State<HomeShell> {
   List<String> _memberBotIds = [];
   ({String pursuitId, String runId})? _run;
   String? _closingRunId;
+  bool _runFromBottom = true;
   final Set<String> _joinedRuns = {};
   int _chatNavigation = 0;
   String? _historyWorkspace;
@@ -154,11 +155,18 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
-  void _openConversation(Conversation conversation) {
+  void _openConversation(
+    Conversation conversation, {
+    bool runFromBottom = true,
+  }) {
     if (conversation.kind == 'pursuit_run' &&
         conversation.pursuitId != null &&
         conversation.runId != null) {
-      _openPursuitRun(conversation.pursuitId!, conversation.runId!);
+      _openPursuitRun(
+        conversation.pursuitId!,
+        conversation.runId!,
+        fromBottom: runFromBottom,
+      );
       return;
     }
     final session = MukaiScope.sessionOf(context);
@@ -180,7 +188,11 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  void _openPursuitRun(String pursuitId, String runId) {
+  void _openPursuitRun(
+    String pursuitId,
+    String runId, {
+    bool fromBottom = true,
+  }) {
     _chatNavigation++;
     final session = MukaiScope.sessionOf(context);
     session.showWorkspace();
@@ -190,6 +202,7 @@ class _HomeShellState extends State<HomeShell> {
       _index = 1;
       _bot = null;
       _run = (pursuitId: pursuitId, runId: runId);
+      _runFromBottom = fromBottom;
       _closingRunId = null;
     });
   }
@@ -359,7 +372,9 @@ class _HomeShellState extends State<HomeShell> {
       body = TweenAnimationBuilder<double>(
         key: ValueKey('run-entrance-${run.runId}'),
         tween: Tween(
-          begin: MediaQuery.disableAnimationsOf(context) ? 1 : 0,
+          begin: !_runFromBottom || MediaQuery.disableAnimationsOf(context)
+              ? 1
+              : 0,
           end: _closingRunId == run.runId ? 0 : 1,
         ),
         duration: MediaQuery.disableAnimationsOf(context)
@@ -639,7 +654,11 @@ class _HomeShellState extends State<HomeShell> {
                           key: ValueKey(session.workspace.id),
                           selectedPursuitId: _run?.pursuitId,
                           selectedRunId: _run?.runId,
-                          onOpenRun: _openPursuitRun,
+                          onOpenRun: (pursuitId, runId) => _openPursuitRun(
+                            pursuitId,
+                            runId,
+                            fromBottom: false,
+                          ),
                           state: session.pursuitSidebar!,
                         ),
                     ],
@@ -675,15 +694,43 @@ class _HomeShellState extends State<HomeShell> {
                             conversation: conversation,
                             bots: session.bots,
                           ),
-                          onTap: () => _openConversation(conversation),
+                          onTap: () => _openConversation(
+                            conversation,
+                            runFromBottom: false,
+                          ),
                         ),
-                    if (conversations.length > historyLimit)
+                    if (conversations.length > historyLimit ||
+                        session.hasMoreSidebarConversations)
                       TextButton(
-                        onPressed: () => setState(() {
-                          _historyWorkspace = session.workspace.id;
-                          _historyLimit = historyLimit + 12;
-                        }),
-                        child: const Text('Load more conversations'),
+                        onPressed: session.loadingSidebarConversations
+                            ? null
+                            : () async {
+                                final workspaceId = session.workspace.id;
+                                try {
+                                  if (conversations.length <= historyLimit) {
+                                    await session
+                                        .loadMoreSidebarConversations();
+                                  }
+                                  if (!mounted ||
+                                      session.workspace.id != workspaceId) {
+                                    return;
+                                  }
+                                  setState(() {
+                                    _historyWorkspace = workspaceId;
+                                    _historyLimit = historyLimit + 12;
+                                  });
+                                } catch (error) {
+                                  if (mounted &&
+                                      session.workspace.id == workspaceId) {
+                                    connectionNotice(this.context, error);
+                                  }
+                                }
+                              },
+                        child: Text(
+                          session.loadingSidebarConversations
+                              ? 'Loading conversations…'
+                              : 'Load more conversations',
+                        ),
                       ),
                   ],
                 ),
@@ -839,12 +886,39 @@ class _ConversationAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bot = bots.where((bot) => bot.id == conversation.botId).firstOrNull;
-    return GhostAvatar(
-      mascot: bot?.mascot ?? Mascot.defaultBot,
-      identity: bot?.identity ?? BotIdentity.mukai,
-      size: 27,
-    );
+    Widget avatar(String id) {
+      final bot = bots.where((bot) => bot.id == id).firstOrNull;
+      return GhostAvatar(
+        mascot: bot?.mascot ?? Mascot.defaultBot,
+        identity: bot?.identity ?? BotIdentity.mukai,
+        size: 27,
+      );
+    }
+
+    if (conversation.kind == 'bot' && conversation.botIds.length == 2) {
+      // Electron displays both participants with a 7px overlap, sorted for a
+      // stable pair identity. Keep the original sender/receiver order in data.
+      final ids = [...conversation.botIds]..sort();
+      return Semantics(
+        label: ids
+            .map(
+              (id) =>
+                  bots.where((bot) => bot.id == id).firstOrNull?.name ?? 'Bot',
+            )
+            .join(' / '),
+        child: SizedBox(
+          width: 47,
+          height: 27,
+          child: Stack(
+            children: [
+              Positioned(left: 0, child: avatar(ids[0])),
+              Positioned(left: 20, child: avatar(ids[1])),
+            ],
+          ),
+        ),
+      );
+    }
+    return avatar(conversation.botId);
   }
 }
 
