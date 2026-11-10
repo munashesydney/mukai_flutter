@@ -536,11 +536,13 @@ class _HomeShellState extends State<HomeShell> {
                     child: MukaiWordmark(size: 27),
                   ),
                 ),
-                MukaiIconButton(
-                  icon: Icons.search_rounded,
-                  tooltip: 'Search workspace',
-                  border: false,
-                  onTap: _search,
+                MukaiGlassPill(
+                  child: MukaiIconButton(
+                    icon: Icons.search_rounded,
+                    tooltip: 'Search workspace',
+                    border: false,
+                    onTap: _search,
+                  ),
                 ),
               ],
             ),
@@ -753,27 +755,39 @@ class _HomeShellState extends State<HomeShell> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: colors.card.withValues(alpha: .9),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: colors.hairlineStrong,
-                                ),
-                              ),
-                              child: MukaiIconButton(
-                                icon: Icons.settings_outlined,
-                                tooltip: 'Settings',
-                                border: false,
-                                size: 50,
-                                onTap: () => _destination(4),
-                              ),
-                            ),
+                        MukaiGlassProbe(
+                          child: MukaiIconButton(
+                            icon: Icons.settings_outlined,
+                            tooltip: 'Settings',
+                            border: false,
+                            size: 50,
+                            onTap: () => _destination(4),
                           ),
+                          builder: (BuildContext context, bool glass, Widget? child) =>
+                              glass
+                              ? MukaiGlassSurface(
+                                  cornerRadius: 25,
+                                  child: child!,
+                                )
+                              : ClipRRect(
+                                  borderRadius: BorderRadius.circular(28),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                      sigmaX: 12,
+                                      sigmaY: 12,
+                                    ),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: colors.card.withValues(alpha: .9),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: colors.hairlineStrong,
+                                        ),
+                                      ),
+                                      child: child,
+                                    ),
+                                  ),
+                                ),
                         ),
                       ],
                     ),

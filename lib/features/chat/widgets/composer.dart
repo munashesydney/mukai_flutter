@@ -12,6 +12,7 @@ import 'reference_preview.dart';
 import 'package:flutter/services.dart';
 
 import '../../../design/appearance.dart';
+import '../../../design/glass.dart';
 import '../../../design/theme.dart';
 import '../../../design/widgets.dart';
 
@@ -175,16 +176,23 @@ class _MukaiComposerState extends State<MukaiComposer> {
     final text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: AnimatedContainer(
-        duration: MukaiMotion.fast,
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        decoration: BoxDecoration(
-          color: colors.card,
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: colors.hairlineStrong),
-          boxShadow: MukaiShadows.card(colors.brightness),
-        ),
-        child: Column(
+      child: MukaiGlassProbe(
+        builder: (BuildContext context, bool glass, Widget? _) =>
+            MukaiGlassSurface(
+          cornerRadius: 26,
+          child: AnimatedContainer(
+            duration: MukaiMotion.fast,
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            decoration: BoxDecoration(
+              // On glass the material itself supplies depth and edges.
+              color: glass ? null : colors.card,
+              borderRadius: BorderRadius.circular(26),
+              border: glass ? null : Border.all(color: colors.hairlineStrong),
+              boxShadow: glass
+                  ? null
+                  : MukaiShadows.card(colors.brightness),
+            ),
+            child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (widget.reference case final reference?)
@@ -295,7 +303,9 @@ class _MukaiComposerState extends State<MukaiComposer> {
                 ),
               ],
             ),
-          ],
+            ],
+            ),
+          ),
         ),
       ),
     );

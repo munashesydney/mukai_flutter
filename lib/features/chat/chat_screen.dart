@@ -242,12 +242,10 @@ class _ChatScreenState extends State<ChatScreen> {
               children: <Widget>[
                 _ChatHeader(
                   bot: bot,
-                  title: widget.title,
                   activityCount: session.activity.total,
                   onActivity: _openActivity,
                   onMenu: widget.onMenu,
                   onNewChat: widget.onNewChat,
-                  runStatus: run?.status,
                   onRunHistory: run?.onHistory,
                 ),
                 if (run != null)
@@ -574,146 +572,109 @@ class _ChatHeader extends StatelessWidget {
   const _ChatHeader({
     required this.bot,
     required this.activityCount,
-    this.title,
     required this.onActivity,
     this.onMenu,
     this.onNewChat,
-    this.runStatus,
     this.onRunHistory,
   });
 
   final MukaiBot bot;
   final int activityCount;
-  final String? title;
   final VoidCallback onActivity;
   final VoidCallback? onMenu;
   final VoidCallback? onNewChat;
-  final String? runStatus;
   final VoidCallback? onRunHistory;
 
   @override
   Widget build(BuildContext context) {
-    final MukaiColors colors = MukaiColors.of(context);
-    final TextTheme text = Theme.of(context).textTheme;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.canvas,
-        border: Border(bottom: BorderSide(color: colors.hairline)),
-      ),
+    // ChatGPT-style: a transparent bar with the mascot floating in the middle
+    // and the controls on their glass pills at the edges.
+    return Padding(
       padding: const EdgeInsets.fromLTRB(6, 4, 10, 8),
-      child: Row(
-        children: <Widget>[
-          if (onMenu != null)
-            MukaiGlassPill(
-              child: MukaiIconButton(
-                icon: Icons.view_sidebar_outlined,
-                tooltip: 'Open sidebar',
-                border: false,
-                iconSize: 17,
-                onTap: () {
-                  Haptics.select();
-                  onMenu!();
-                },
-              ),
-            )
-          else
-            MukaiIconButton(
-              icon: Icons.arrow_back_ios_new_rounded,
-              tooltip: 'Back',
-              border: false,
-              iconSize: 17,
-              onTap: () {
-                Haptics.select();
-                Navigator.of(context).maybePop();
-              },
+      child: SizedBox(
+        height: 48,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            GhostAvatar(
+              mascot: bot.mascot,
+              identity: bot.identity,
+              size: 36,
             ),
-          GhostAvatar(mascot: bot.mascot, identity: bot.identity, size: 34),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _SidebarToggle(onMenu: onMenu),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: MukaiGlassPill(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        title ?? bot.name,
-                        style: text.titleMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    MukaiIconButton(
+                      icon: Icons.dashboard_outlined,
+                      tooltip: 'Activity',
+                      border: false,
+                      onTap: onActivity,
                     ),
-                    if (bot.isMain) ...<Widget>[
-                      const SizedBox(width: 5),
-                      Icon(
-                        Icons.star_rounded,
-                        size: 13,
-                        color: colors.identity(BotIdentity.scout).mark,
+                    if (onNewChat != null) ...<Widget>[
+                      const MukaiGlassDivider(),
+                      MukaiIconButton(
+                        icon: Icons.edit_square,
+                        tooltip: 'New chat',
+                        border: false,
+                        onTap: onNewChat,
+                      ),
+                    ],
+                    if (onRunHistory != null) ...<Widget>[
+                      const MukaiGlassDivider(),
+                      MukaiIconButton(
+                        icon: Icons.arrow_downward_rounded,
+                        tooltip: 'Close run',
+                        border: false,
+                        onTap: onRunHistory,
                       ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 1),
-                Row(
-                  children: <Widget>[
-                    Container(
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: bot.running
-                            ? const Color(0xFF4CB07F)
-                            : colors.textSoft,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Flexible(
-                      child: Text(
-                        runStatus ?? bot.role,
-                        style: text.bodySmall?.copyWith(
-                          color: colors.textMuted,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-          MukaiGlassPill(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                MukaiIconButton(
-                  icon: Icons.dashboard_outlined,
-                  tooltip: 'Activity',
-                  border: false,
-                  onTap: onActivity,
-                ),
-                if (onNewChat != null) ...<Widget>[
-                  const MukaiGlassDivider(),
-                  MukaiIconButton(
-                    icon: Icons.edit_square,
-                    tooltip: 'New chat',
-                    border: false,
-                    onTap: onNewChat,
-                  ),
-                ],
-                if (onRunHistory != null) ...<Widget>[
-                  const MukaiGlassDivider(),
-                  MukaiIconButton(
-                    icon: Icons.arrow_downward_rounded,
-                    tooltip: 'Close run',
-                    border: false,
-                    onTap: onRunHistory,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarToggle extends StatelessWidget {
+  const _SidebarToggle({this.onMenu});
+
+  final VoidCallback? onMenu;
+
+  @override
+  Widget build(BuildContext context) {
+    if (onMenu == null) {
+      return MukaiIconButton(
+        icon: Icons.arrow_back_ios_new_rounded,
+        tooltip: 'Back',
+        border: false,
+        iconSize: 17,
+        onTap: () {
+          Haptics.select();
+          Navigator.of(context).maybePop();
+        },
+      );
+    }
+    return MukaiGlassPill(
+      child: MukaiIconButton(
+        icon: Icons.view_sidebar_outlined,
+        tooltip: 'Open sidebar',
+        border: false,
+        iconSize: 17,
+        onTap: () {
+          Haptics.select();
+          onMenu!();
+        },
       ),
     );
   }
