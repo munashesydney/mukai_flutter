@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/models.dart';
 import 'appearance.dart';
+import 'glass.dart';
 import 'theme.dart';
 
 // ---------------------------------------------------------------------------
@@ -988,11 +989,20 @@ Future<T?> showMukaiSheet<T>({
   bool isScrollControlled = true,
 }) {
   final MukaiColors colors = MukaiColors.of(context);
-  return showModalBottomSheet<T>(
-    context: context,
+  final navigator = Navigator.of(context);
+  final localizations = MaterialLocalizations.of(context);
+  final route = ModalBottomSheetRoute<T>(
+    capturedThemes: InheritedTheme.capture(
+      from: context,
+      to: navigator.context,
+    ),
     isScrollControlled: isScrollControlled,
     useSafeArea: true,
     enableDrag: true,
+    barrierLabel: localizations.scrimLabel,
+    barrierOnTapHint: localizations.scrimOnTapHint(
+      localizations.bottomSheetLabel,
+    ),
     constraints: BoxConstraints(
       maxHeight: MediaQuery.sizeOf(context).height * .90,
     ),
@@ -1002,9 +1012,13 @@ Future<T?> showMukaiSheet<T>({
         top: Radius.circular(MukaiRadii.sheet),
       ),
     ),
-    barrierColor: colors.scrim,
+    modalBarrierColor: colors.scrim,
     builder: builder,
   );
+  // The push future resolves at pop, before the reverse animation ends.
+  // completed resolves after the sheet and its barrier leave the overlay.
+  MukaiGlass.coverRouteUntil(ModalRoute.of(context), route.completed);
+  return navigator.push(route);
 }
 
 class SheetGrabber extends StatelessWidget {

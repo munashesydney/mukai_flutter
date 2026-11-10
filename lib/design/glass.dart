@@ -24,6 +24,30 @@ abstract final class MukaiGlass {
 
   static Future<bool> get available => _probe ??= _detect();
 
+  static final _coveredRoutes = ValueNotifier<Map<Route<dynamic>, int>>({});
+
+  /// Keep background glass out of composition until the covering sheet's
+  /// exit animation finishes, including when multiple sheets are stacked.
+  static void coverRouteUntil(
+    Route<dynamic>? owner,
+    Future<dynamic> completed,
+  ) {
+    if (owner == null) return;
+    final covers = Map<Route<dynamic>, int>.of(_coveredRoutes.value);
+    covers[owner] = (covers[owner] ?? 0) + 1;
+    _coveredRoutes.value = covers;
+    completed.whenComplete(() {
+      final remaining = Map<Route<dynamic>, int>.of(_coveredRoutes.value);
+      final count = (remaining[owner] ?? 1) - 1;
+      if (count == 0) {
+        remaining.remove(owner);
+      } else {
+        remaining[owner] = count;
+      }
+      _coveredRoutes.value = remaining;
+    });
+  }
+
   static bool? _lastDark;
 
   /// Tells the native side the app's brightness. The app can force Light or
@@ -125,8 +149,7 @@ class MukaiGlassSurface extends StatelessWidget {
                 // Native backdrop views can punch through Flutter modal
                 // overlays. Omit them from composition while this route is
                 // covered, without disposing and recreating their UIKit views.
-                child: Opacity(
-                  opacity: ModalRoute.isCurrentOf(context) == false ? 0 : 1,
+                child: MukaiGlassVisibility(
                   child: UiKitView(
                     viewType: 'mukai/glass_pill',
                     hitTestBehavior: PlatformViewHitTestBehavior.transparent,
@@ -233,4 +256,34 @@ class MukaiGlassBackButton extends StatelessWidget {
       onPressed: () => Navigator.of(context).maybePop(),
     ),
   );
+}
+
+/// Retains native view state while covered, then gently restores its material.
+class MukaiGlassVisibility extends StatelessWidget {
+  const MukaiGlassVisibility({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final route = ModalRoute.of(context);
+    final current = ModalRoute.isCurrentOf(context) != false;
+    return ValueListenableBuilder<Map<Route<dynamic>, int>>(
+      valueListenable: MukaiGlass._coveredRoutes,
+      child: child,
+      builder: (context, covers, child) {
+        final visible = current && !covers.containsKey(route);
+        return AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          // Hide before a modal can overlap the native material; restore only
+          // after it has left. No platform view is removed from the tree.
+          duration: !visible || MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: child,
+        );
+      },
+    );
+  }
 }

@@ -138,13 +138,11 @@ class SidebarCanvasState extends State<SidebarCanvas>
                                       child: Semantics(
                                         button: true,
                                         label: 'Close navigation',
-                                        child: ColoredBox(
-                                          color: Colors.black.withValues(
-                                            alpha:
-                                                (colors.isDark ? .12 : .035) *
-                                                progress,
-                                          ),
-                                        ),
+                                        // A transparent hit target keeps the page's
+                                        // original colour. Painting a scrim above
+                                        // UIKit glass also exposes rectangular
+                                        // platform-view composition boundaries.
+                                        child: const SizedBox.expand(),
                                       ),
                                     ),
                                   ),
