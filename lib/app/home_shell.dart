@@ -402,7 +402,7 @@ class _HomeShellState extends State<HomeShell> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: Row(
                 children: <Widget>[
-                  MukaiGlassPill(
+                  MukaiGlassPill.circle(
                     child: MukaiIconButton(
                       icon: Icons.view_sidebar_outlined,
                       tooltip: 'Open sidebar',
@@ -413,7 +413,7 @@ class _HomeShellState extends State<HomeShell> {
                   const Spacer(),
                   const MukaiWordmark(size: 25),
                   const Spacer(),
-                  MukaiGlassPill(
+                  MukaiGlassPill.circle(
                     child: MukaiIconButton(
                       icon: Icons.edit_square,
                       tooltip: 'New chat',
@@ -536,7 +536,7 @@ class _HomeShellState extends State<HomeShell> {
                     child: MukaiWordmark(size: 27),
                   ),
                 ),
-                MukaiGlassPill(
+                MukaiGlassPill.circle(
                   child: MukaiIconButton(
                     icon: Icons.search_rounded,
                     tooltip: 'Search workspace',
@@ -763,8 +763,12 @@ class _HomeShellState extends State<HomeShell> {
                             size: 50,
                             onTap: () => _destination(4),
                           ),
-                          builder: (BuildContext context, bool glass, Widget? child) =>
-                              glass
+                          builder:
+                              (
+                                BuildContext context,
+                                bool glass,
+                                Widget? child,
+                              ) => glass
                               ? MukaiGlassSurface(
                                   cornerRadius: 25,
                                   child: child!,
@@ -778,7 +782,9 @@ class _HomeShellState extends State<HomeShell> {
                                     ),
                                     child: Container(
                                       decoration: BoxDecoration(
-                                        color: colors.card.withValues(alpha: .9),
+                                        color: colors.card.withValues(
+                                          alpha: .9,
+                                        ),
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color: colors.hairlineStrong,

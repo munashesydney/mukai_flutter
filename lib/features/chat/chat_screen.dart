@@ -80,6 +80,14 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _joiningReference = false;
   _ChatView _view = _ChatView.chat;
 
+  /// The header and composer float over the full-bleed thread, so the scroll
+  /// view needs padding equal to their measured heights. They grow and shrink
+  /// (approval dock, follow-up queue, multi-line input), hence the keys.
+  final GlobalKey _topKey = GlobalKey();
+  final GlobalKey _bottomKey = GlobalKey();
+  double _topInset = 62;
+  double _bottomInset = 118;
+
   @override
   void initState() {
     super.initState();
@@ -119,6 +127,21 @@ class _ChatScreenState extends State<ChatScreen> {
       duration: MukaiMotion.normal,
       curve: MukaiMotion.curve,
     );
+  }
+
+  void _syncFloatingInsets() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final double? top = _topKey.currentContext?.size?.height;
+      final double? bottom = _bottomKey.currentContext?.size?.height;
+      if (top == null || bottom == null) return;
+      if (top != _topInset || bottom != _bottomInset) {
+        setState(() {
+          _topInset = top;
+          _bottomInset = bottom;
+        });
+      }
+    });
   }
 
   Future<void> _attach() async {
@@ -234,331 +257,398 @@ class _ChatScreenState extends State<ChatScreen> {
             .toList();
         final pending = session.pendingApprovals;
 
+        _syncFloatingInsets();
         return Scaffold(
           backgroundColor: colors.canvas,
           body: SafeArea(
             bottom: false,
-            child: Column(
+            // ChatGPT-style floating chrome: the thread runs full-bleed
+            // beneath the header and composer, which only cost it scroll
+            // padding so messages visibly slide under the glass.
+            child: Stack(
+              fit: StackFit.expand,
               children: <Widget>[
-                _ChatHeader(
-                  bot: bot,
-                  activityCount: session.activity.total,
-                  onActivity: _openActivity,
-                  onMenu: widget.onMenu,
-                  onNewChat: widget.onNewChat,
-                  onRunHistory: run?.onHistory,
-                ),
-                if (run != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: MukaiSpace.screen,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: [
-                        for (final (view, label) in [
-                          (_ChatView.chat, 'Chat'),
-                          (_ChatView.artifacts, 'Artifacts'),
-                          (_ChatView.outcome, 'Run outcome'),
-                        ])
-                          Expanded(
-                            child: ChoiceChip(
-                              label: Text(
-                                label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              selected: _view == view,
-                              onSelected: (_) {
-                                FocusManager.instance.primaryFocus?.unfocus();
-                                setState(() => _view = view);
-                              },
+                Positioned.fill(
+                  child: Column(
+                    children: <Widget>[
+                      if (!chat && run != null)
+                        Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              top: _topInset,
+                              bottom: _bottomInset,
                             ),
-                          ),
-                      ],
-                    ),
-                  ),
-                if (session.hasError)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      MukaiSpace.screen,
-                      MukaiSpace.md,
-                      MukaiSpace.screen,
-                      0,
-                    ),
-                    child: MukaiErrorBanner(
-                      message: session.error!,
-                      onRetry: session.retryLoad,
-                    ),
-                  ),
-                if (chat && session.api != null)
-                  AIQueueNotice(
-                    activity: session.aiActivity,
-                    conversationId: session.conversationId ?? 'bot-${bot.id}',
-                  ),
-                if (!chat && run != null)
-                  Expanded(
-                    child: _view == _ChatView.outcome
-                        ? run.outcome
-                        : _RunArtifacts(
-                            outputs: session.activity.outputs,
-                            messages: thread,
-                          ),
-                  )
-                else
-                  Expanded(
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: <Widget>[
-                        if (session.loadingThreads)
-                          const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2.4),
-                          )
-                        else if (thread.isEmpty)
-                          MukaiEmptyState(
-                            title: run == null
-                                ? 'A fresh start with ${bot.name}.'
-                                : 'The run chat starts here.',
-                            body: run == null
-                                ? 'Bring a question, an idea, or something you’d like to move forward.'
-                                : 'Messages will appear as your companion works.',
-                            mascot: bot.mascot,
-                            identity: bot.identity,
-                          )
-                        else
-                          Align(
-                            alignment: Alignment.topCenter,
-                            child: ListView.builder(
-                              shrinkWrap: true,
-                              controller: _scroll,
-                              reverse: true,
-                              keyboardDismissBehavior:
-                                  ScrollViewKeyboardDismissBehavior.onDrag,
-                              padding: const EdgeInsets.fromLTRB(
-                                MukaiSpace.screen,
-                                MukaiSpace.lg,
-                                MukaiSpace.screen,
-                                MukaiSpace.md,
-                              ),
-                              itemCount: thread.length,
-                              findChildIndexCallback: (key) {
-                                if (key is! ValueKey<String>) return null;
-                                final index = thread.indexWhere(
-                                  (m) => m.id == key.value,
-                                );
-                                return index < 0 ? null : index;
-                              },
-                              itemBuilder: (BuildContext context, int index) =>
-                                  Column(
-                                    key: ValueKey(thread[index].id),
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      MessageView(
-                                        timeZone: session.workspace.timeZone,
-                                        message: thread[index],
-                                        bots: session.bots,
-                                        onApproval:
-                                            (
-                                              ApprovalBlock approval,
-                                              bool approved,
-                                            ) => session.resolveApproval(
-                                              approval,
-                                              approved: approved,
-                                            ),
-                                      ),
-                                      if (thread[index].notificationSource
-                                          case final source?)
-                                        if (widget.onOpenSource != null)
-                                          TextButton.icon(
-                                            icon: const Icon(
-                                              Icons.arrow_outward_rounded,
-                                              size: 16,
-                                            ),
-                                            label: Text(
-                                              source.isRun
-                                                  ? 'Open original run'
-                                                  : 'Open original conversation',
-                                            ),
-                                            onPressed: () =>
-                                                widget.onOpenSource!(source),
-                                          ),
-                                      if (thread[index].error != null)
-                                        Text(
-                                          thread[index].error!,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.error,
-                                              ),
-                                        ),
-                                      if (session.api != null &&
-                                          (widget.kind != 'pursuit_run' ||
-                                              (canJoin &&
-                                                  !active &&
-                                                  thread[index].requestId ==
-                                                      latestRequest &&
-                                                  (!automatic ||
-                                                      thread[index].requestId !=
-                                                          kickoff
-                                                              .requestId))) &&
-                                          const [
-                                            'failed',
-                                            'stopped',
-                                            'interrupted',
-                                          ].contains(thread[index].status))
-                                        TextButton.icon(
-                                          onPressed: session.responding
-                                              ? null
-                                              : () => session.retryMessage(
-                                                  thread[index],
-                                                ),
-                                          icon: const Icon(
-                                            Icons.refresh_rounded,
-                                          ),
-                                          label: const Text('Retry response'),
-                                        ),
-                                    ],
+                            child: _view == _ChatView.outcome
+                                ? run.outcome
+                                : _RunArtifacts(
+                                    outputs: session.activity.outputs,
+                                    messages: thread,
                                   ),
-                            ),
                           ),
-                        Positioned(
-                          right: MukaiSpace.screen,
-                          bottom: MukaiSpace.md,
-                          child: IgnorePointer(
-                            ignoring: !_showJump,
-                            child: AnimatedScale(
-                              scale: _showJump ? 1 : 0,
-                              duration: MukaiMotion.fast,
-                              curve: MukaiMotion.springy,
-                              child: _JumpButton(onTap: _jumpToLatest),
-                            ),
+                        )
+                      else
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: <Widget>[
+                              if (session.loadingThreads)
+                                const Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                  ),
+                                )
+                              else if (thread.isEmpty)
+                                MukaiEmptyState(
+                                  title: run == null
+                                      ? 'A fresh start with ${bot.name}.'
+                                      : 'The run chat starts here.',
+                                  body: run == null
+                                      ? 'Bring a question, an idea, or something you’d like to move forward.'
+                                      : 'Messages will appear as your companion works.',
+                                  mascot: bot.mascot,
+                                  identity: bot.identity,
+                                )
+                              else
+                                Align(
+                                  alignment: Alignment.topCenter,
+                                  child: ListView.builder(
+                                    shrinkWrap: true,
+                                    controller: _scroll,
+                                    reverse: true,
+                                    keyboardDismissBehavior:
+                                        ScrollViewKeyboardDismissBehavior
+                                            .onDrag,
+                                    padding: EdgeInsets.fromLTRB(
+                                      MukaiSpace.screen,
+                                      _topInset + MukaiSpace.md,
+                                      MukaiSpace.screen,
+                                      _bottomInset + MukaiSpace.md,
+                                    ),
+                                    itemCount: thread.length,
+                                    findChildIndexCallback: (key) {
+                                      if (key is! ValueKey<String>) return null;
+                                      final index = thread.indexWhere(
+                                        (m) => m.id == key.value,
+                                      );
+                                      return index < 0 ? null : index;
+                                    },
+                                    itemBuilder:
+                                        (
+                                          BuildContext context,
+                                          int index,
+                                        ) => Column(
+                                          key: ValueKey(thread[index].id),
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            MessageView(
+                                              timeZone:
+                                                  session.workspace.timeZone,
+                                              message: thread[index],
+                                              bots: session.bots,
+                                              onApproval:
+                                                  (
+                                                    ApprovalBlock approval,
+                                                    bool approved,
+                                                  ) => session.resolveApproval(
+                                                    approval,
+                                                    approved: approved,
+                                                  ),
+                                            ),
+                                            if (thread[index].notificationSource
+                                                case final source?)
+                                              if (widget.onOpenSource != null)
+                                                TextButton.icon(
+                                                  icon: const Icon(
+                                                    Icons.arrow_outward_rounded,
+                                                    size: 16,
+                                                  ),
+                                                  label: Text(
+                                                    source.isRun
+                                                        ? 'Open original run'
+                                                        : 'Open original conversation',
+                                                  ),
+                                                  onPressed: () =>
+                                                      widget.onOpenSource!(
+                                                        source,
+                                                      ),
+                                                ),
+                                            if (thread[index].error != null)
+                                              Text(
+                                                thread[index].error!,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).colorScheme.error,
+                                                    ),
+                                              ),
+                                            if (session.api != null &&
+                                                (widget.kind != 'pursuit_run' ||
+                                                    (canJoin &&
+                                                        !active &&
+                                                        thread[index]
+                                                                .requestId ==
+                                                            latestRequest &&
+                                                        (!automatic ||
+                                                            thread[index]
+                                                                    .requestId !=
+                                                                kickoff
+                                                                    .requestId))) &&
+                                                const [
+                                                  'failed',
+                                                  'stopped',
+                                                  'interrupted',
+                                                ].contains(
+                                                  thread[index].status,
+                                                ))
+                                              TextButton.icon(
+                                                onPressed: session.responding
+                                                    ? null
+                                                    : () =>
+                                                          session.retryMessage(
+                                                            thread[index],
+                                                          ),
+                                                icon: const Icon(
+                                                  Icons.refresh_rounded,
+                                                ),
+                                                label: const Text(
+                                                  'Retry response',
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                  ),
+                                ),
+                              Positioned(
+                                right: MukaiSpace.screen,
+                                bottom: _bottomInset + MukaiSpace.md,
+                                child: IgnorePointer(
+                                  ignoring: !_showJump,
+                                  child: AnimatedScale(
+                                    scale: _showJump ? 1 : 0,
+                                    duration: MukaiMotion.fast,
+                                    curve: MukaiMotion.springy,
+                                    child: _JumpButton(onTap: _jumpToLatest),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                    ],
                   ),
-                if (chat &&
-                    pending.isEmpty &&
-                    session.api != null &&
-                    session.followups.isNotEmpty)
-                  FollowupQueue(runActive: active),
-                if (chat &&
-                    pending.isEmpty &&
-                    widget.kind == 'space' &&
-                    session.api != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        const Text('Reply with '),
-                        Expanded(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            value: session.bot.id.isEmpty
-                                ? ''
-                                : widget.memberBotIds.contains(session.bot.id)
-                                ? session.bot.id
-                                : '',
-                            hint: const Text('Select a companion'),
-                            items: [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('Post without a bot'),
-                              ),
-                              for (final bot in session.bots.where(
-                                (b) => widget.memberBotIds.contains(b.id),
-                              ))
-                                DropdownMenuItem(
-                                  value: bot.id,
-                                  child: Text(bot.name),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Column(
+                    key: _topKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _ChatHeader(
+                        bot: bot,
+                        activityCount: session.activity.total,
+                        onActivity: _openActivity,
+                        onMenu: widget.onMenu,
+                        onNewChat: widget.onNewChat,
+                        onRunHistory: run?.onHistory,
+                      ),
+                      if (run != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: MukaiSpace.screen,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              for (final (view, label) in [
+                                (_ChatView.chat, 'Chat'),
+                                (_ChatView.artifacts, 'Artifacts'),
+                                (_ChatView.outcome, 'Run outcome'),
+                              ])
+                                Expanded(
+                                  child: ChoiceChip(
+                                    label: Text(
+                                      label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    selected: _view == view,
+                                    onSelected: (_) {
+                                      FocusManager.instance.primaryFocus
+                                          ?.unfocus();
+                                      setState(() => _view = view);
+                                    },
+                                  ),
                                 ),
                             ],
-                            onChanged: (id) {
-                              if (id != null) session.selectSpaceBot(id);
-                            },
                           ),
                         ),
-                      ],
-                    ),
+                      if (session.hasError)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            MukaiSpace.screen,
+                            MukaiSpace.md,
+                            MukaiSpace.screen,
+                            0,
+                          ),
+                          child: MukaiErrorBanner(
+                            message: session.error!,
+                            onRetry: session.retryLoad,
+                          ),
+                        ),
+                      if (chat && session.api != null)
+                        AIQueueNotice(
+                          activity: session.aiActivity,
+                          conversationId:
+                              session.conversationId ?? 'bot-${bot.id}',
+                        ),
+                    ],
                   ),
-                if (run != null &&
-                    (active || run.onRetry != null) &&
-                    (!chat || !widget.joined || pending.isNotEmpty || !active))
-                  TextButton.icon(
-                    onPressed: active
-                        ? (session.conversationId == widget.conversationId
-                              ? session.stop
-                              : null)
-                        : run.onRetry,
-                    icon: Icon(
-                      active ? Icons.stop_rounded : Icons.refresh_rounded,
-                    ),
-                    label: Text(active ? 'Stop run' : 'Retry run'),
-                  ),
-                if (chat && pending.isNotEmpty)
-                  SafeArea(top: false, child: ApprovalDock(requests: pending))
-                else if (chat &&
-                    widget.kind == 'pursuit_run' &&
-                    (!canJoin || !widget.joined))
-                  SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: canJoin
-                          ? OutlinedButton.icon(
-                              onPressed: widget.onJoin,
-                              icon: const Icon(
-                                Icons.chat_bubble_outline_rounded,
+                ),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Column(
+                    key: _bottomKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (chat &&
+                          pending.isEmpty &&
+                          session.api != null &&
+                          session.followups.isNotEmpty)
+                        FollowupQueue(runActive: active),
+                      if (chat &&
+                          pending.isEmpty &&
+                          widget.kind == 'space' &&
+                          session.api != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              const Text('Reply with '),
+                              Expanded(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  value: session.bot.id.isEmpty
+                                      ? ''
+                                      : widget.memberBotIds.contains(
+                                          session.bot.id,
+                                        )
+                                      ? session.bot.id
+                                      : '',
+                                  hint: const Text('Select a companion'),
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('Post without a bot'),
+                                    ),
+                                    for (final bot in session.bots.where(
+                                      (b) => widget.memberBotIds.contains(b.id),
+                                    ))
+                                      DropdownMenuItem(
+                                        value: bot.id,
+                                        child: Text(bot.name),
+                                      ),
+                                  ],
+                                  onChanged: (id) {
+                                    if (id != null) session.selectSpaceBot(id);
+                                  },
+                                ),
                               ),
-                              label: const Text('Jump in the chat'),
-                            )
-                          : const Text('Pursuit run · read only'),
-                    ),
-                  )
-                else if (chat)
-                  SafeArea(
-                    top: false,
-                    bottom: true,
-                    child: MukaiComposer(
-                      key: ValueKey(session.draftKey),
-                      enabled: !session.loadingThreads,
-                      autofocus: widget.fresh,
-                      botName: widget.kind == 'space'
-                          ? (widget.title ?? 'Space')
-                          : bot.name,
-                      initialDraft: session.drafts[session.draftKey] ?? '',
-                      reference: session.reference,
-                      onRemoveReference: () => session.setReference(null),
-                      onDraftChanged: (text) =>
-                          session.drafts[session.draftKey] = text,
-                      allowQueue: session.api != null,
-                      submitting: session.submittingFollowup,
-                      onSubmit: session.api != null
-                          ? (text) => session.send(text, queue: active)
-                          : null,
-                      accessMode: session.api == null
-                          ? null
-                          : session.approvalMode,
-                      onModeChanged: session.setApprovalMode,
-                      onModelChanged: session.setModel,
-                      onAttach: session.api == null || widget.kind == 'space'
-                          ? null
-                          : _attach,
-                      attachments: session.attachments,
-                      onRemoveAttachment: session.removeAttachment,
-                      responding: session.responding || active,
-                      modelLabel: bot.modelLabel,
-                      modelOptions: session.api == null
-                          ? const ['Workspace default']
-                          : session.modelOptions,
-                      onSend: session.send,
-                      onStop: session.stop,
-                    ),
+                            ],
+                          ),
+                        ),
+                      if (run != null &&
+                          (active || run.onRetry != null) &&
+                          (!chat ||
+                              !widget.joined ||
+                              pending.isNotEmpty ||
+                              !active))
+                        TextButton.icon(
+                          onPressed: active
+                              ? (session.conversationId == widget.conversationId
+                                    ? session.stop
+                                    : null)
+                              : run.onRetry,
+                          icon: Icon(
+                            active ? Icons.stop_rounded : Icons.refresh_rounded,
+                          ),
+                          label: Text(active ? 'Stop run' : 'Retry run'),
+                        ),
+                      if (chat && pending.isNotEmpty)
+                        SafeArea(
+                          top: false,
+                          child: ApprovalDock(requests: pending),
+                        )
+                      else if (chat &&
+                          widget.kind == 'pursuit_run' &&
+                          (!canJoin || !widget.joined))
+                        SafeArea(
+                          top: false,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: canJoin
+                                ? OutlinedButton.icon(
+                                    onPressed: widget.onJoin,
+                                    icon: const Icon(
+                                      Icons.chat_bubble_outline_rounded,
+                                    ),
+                                    label: const Text('Jump in the chat'),
+                                  )
+                                : const Text('Pursuit run · read only'),
+                          ),
+                        )
+                      else if (chat)
+                        SafeArea(
+                          top: false,
+                          bottom: true,
+                          child: MukaiComposer(
+                            key: ValueKey(session.draftKey),
+                            enabled: !session.loadingThreads,
+                            autofocus: widget.fresh,
+                            botName: widget.kind == 'space'
+                                ? (widget.title ?? 'Space')
+                                : bot.name,
+                            initialDraft:
+                                session.drafts[session.draftKey] ?? '',
+                            reference: session.reference,
+                            onRemoveReference: () => session.setReference(null),
+                            onDraftChanged: (text) =>
+                                session.drafts[session.draftKey] = text,
+                            allowQueue: session.api != null,
+                            submitting: session.submittingFollowup,
+                            onSubmit: session.api != null
+                                ? (text) => session.send(text, queue: active)
+                                : null,
+                            accessMode: session.api == null
+                                ? null
+                                : session.approvalMode,
+                            onModeChanged: session.setApprovalMode,
+                            onModelChanged: session.setModel,
+                            onAttach:
+                                session.api == null || widget.kind == 'space'
+                                ? null
+                                : _attach,
+                            attachments: session.attachments,
+                            onRemoveAttachment: session.removeAttachment,
+                            responding: session.responding || active,
+                            modelLabel: bot.modelLabel,
+                            modelOptions: session.api == null
+                                ? const ['Workspace default']
+                                : session.modelOptions,
+                            onSend: session.send,
+                            onStop: session.stop,
+                          ),
+                        ),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
@@ -596,11 +686,7 @@ class _ChatHeader extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: <Widget>[
-            GhostAvatar(
-              mascot: bot.mascot,
-              identity: bot.identity,
-              size: 36,
-            ),
+            GhostAvatar(mascot: bot.mascot, identity: bot.identity, size: 36),
             Align(
               alignment: Alignment.centerLeft,
               child: _SidebarToggle(onMenu: onMenu),
@@ -665,7 +751,7 @@ class _SidebarToggle extends StatelessWidget {
         },
       );
     }
-    return MukaiGlassPill(
+    return MukaiGlassPill.circle(
       child: MukaiIconButton(
         icon: Icons.view_sidebar_outlined,
         tooltip: 'Open sidebar',

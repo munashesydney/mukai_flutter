@@ -19,8 +19,7 @@ import 'appearance.dart';
 
 /// Capability probe for the native glass bridge, resolved once and cached.
 abstract final class MukaiGlass {
-  static const MethodChannel _channel =
-      MethodChannel('com.mukai.mobile/glass');
+  static const MethodChannel _channel = MethodChannel('com.mukai.mobile/glass');
   static Future<bool>? _probe;
 
   static Future<bool> get available => _probe ??= _detect();
@@ -41,14 +40,10 @@ abstract final class MukaiGlass {
 /// own fallback decoration changes with glass (the composer, for instance)
 /// can adapt instead of being covered by the material.
 class MukaiGlassProbe extends StatelessWidget {
-  const MukaiGlassProbe({
-    super.key,
-    required this.builder,
-    this.child,
-  });
+  const MukaiGlassProbe({super.key, required this.builder, this.child});
 
   final Widget Function(BuildContext context, bool glass, Widget? child)
-      builder;
+  builder;
   final Widget? child;
 
   @override
@@ -130,6 +125,28 @@ class MukaiGlassPill extends StatelessWidget {
       cornerRadius: cornerRadius ?? height / 2,
       padding: padding,
       child: SizedBox(height: height, child: child),
+    );
+  }
+
+  /// A single floating control. ChatGPT renders these as true circles, so the
+  /// glass has to be as wide as it is tall: [diameter] (plus [padding] on both
+  /// axes) instead of the wider `width = child + horizontal padding` a
+  /// multi-button pill gets.
+  static Widget circle({
+    Key? key,
+    required Widget child,
+    double diameter = 48,
+    double padding = 2,
+  }) {
+    return MukaiGlassPill(
+      key: key,
+      height: diameter,
+      padding: EdgeInsets.all(padding),
+      child: SizedBox(
+        width: diameter - padding * 2,
+        height: diameter - padding * 2,
+        child: child,
+      ),
     );
   }
 }
