@@ -228,7 +228,7 @@ class _WorkpadPageState extends State<_WorkpadPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('Workpad'),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: Column(
       children: <Widget>[
@@ -354,7 +354,7 @@ class _WorkpadEntry extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('Workpad entry'),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: ConnectedAsync(
       refreshInterval: const Duration(seconds: 5),
@@ -446,7 +446,7 @@ class _SpaceEditorState extends State<_SpaceEditor> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('New space'),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: SafeArea(
       top: false,
@@ -525,7 +525,7 @@ class _ToolPageState extends State<_ToolPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(words(widget.tool['name'], 'Tool')),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: ListView(
       padding: const EdgeInsets.all(24),

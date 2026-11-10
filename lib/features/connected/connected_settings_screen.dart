@@ -300,7 +300,7 @@ class _ProfileEditorState extends State<_ProfileEditor> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('Profile'),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: SafeArea(
       top: false,
@@ -383,7 +383,7 @@ class _ProviderPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(words(provider['name'], 'Provider')),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: ConnectedAsync(
       load: () async {
@@ -607,7 +607,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(widget.provider == null ? 'Add provider' : 'Edit provider'),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
     ),
     body: SafeArea(
       top: false,

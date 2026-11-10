@@ -24,16 +24,6 @@ abstract final class MukaiGlass {
 
   static Future<bool> get available => _probe ??= _detect();
 
-  /// Hides the native material for the length of a page-wide transform.
-  /// iOS composites platform views above the Flutter layer and punches a
-  /// hole in that layer for them; while the sidebar drags the page through
-  /// a Transform+ClipRRect the hole lags the moving clip and tears as a
-  /// bright band along the page edge. The controls stay; only the material
-  /// steps out until the page settles. Callers must drive this from live
-  /// motion state — a purely event-driven flag can strand and take the
-  /// material app-wide.
-  static final ValueNotifier<bool> hidden = ValueNotifier<bool>(false);
-
   static bool? _lastDark;
 
   /// Tells the native side the app's brightness. The app can force Light or
@@ -115,16 +105,28 @@ class MukaiGlassSurface extends StatelessWidget {
         // disagrees with the app's forced mode.
         final bool isDark = MukaiColors.of(context).isDark;
         MukaiGlass.syncAppearance(isDark: isDark);
-        return ValueListenableBuilder<bool>(
-          valueListenable: MukaiGlass.hidden,
-          child: content,
-          builder: (BuildContext context, bool hidden, Widget? child) {
-            // The material steps out while the page transforms (see
-            // MukaiGlass.hidden); the controls are untouched.
-            if (hidden) return child!;
-            return Stack(
-              children: <Widget>[
-                Positioned.fill(
+        // Keep one platform view alive through sidebar drags and settling.
+        // Replacing it with a painted blur destroys the native effect and
+        // flashes when UIKit creates the replacement view.
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(cornerRadius),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? .18 : .08),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: <Widget>[
+              Positioned.fill(
+                // Native backdrop views can punch through Flutter modal
+                // overlays. Omit them from composition while this route is
+                // covered, without disposing and recreating their UIKit views.
+                child: Opacity(
+                  opacity: ModalRoute.isCurrentOf(context) == false ? 0 : 1,
                   child: UiKitView(
                     viewType: 'mukai/glass_pill',
                     hitTestBehavior: PlatformViewHitTestBehavior.transparent,
@@ -135,10 +137,10 @@ class MukaiGlassSurface extends StatelessWidget {
                     creationParamsCodec: const StandardMessageCodec(),
                   ),
                 ),
-                content,
-              ],
-            );
-          },
+              ),
+              content,
+            ],
+          ),
         );
       },
     );
@@ -182,15 +184,20 @@ class MukaiGlassPill extends StatelessWidget {
     double padding = 2,
   }) {
     final double inner = diameter - padding * 2;
-    // Built on the surface directly: routing through the pill would wrap the
-    // fixed inner box in its `SizedBox(height:)`, whose tight height beats
-    // the child's tight width — the glass ends up [padding]*2 taller than
-    // wide, exactly the flat left/right sides this factory exists to avoid.
-    return MukaiGlassSurface(
-      key: key,
-      cornerRadius: diameter / 2,
-      padding: EdgeInsets.all(padding),
-      child: SizedBox(width: inner, height: inner, child: child),
+    // AppBar gives leading widgets a tight 56 x 56 slot. Loosen that slot
+    // before sizing the surface so its radius always describes a circle.
+    return Center(
+      widthFactor: 1,
+      heightFactor: 1,
+      child: SizedBox.square(
+        dimension: diameter,
+        child: MukaiGlassSurface(
+          key: key,
+          cornerRadius: diameter / 2,
+          padding: EdgeInsets.all(padding),
+          child: SizedBox(width: inner, height: inner, child: child),
+        ),
+      ),
     );
   }
 }
@@ -209,4 +216,21 @@ class MukaiGlassDivider extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Consistent back control for AppBar leading slots.
+class MukaiGlassBackButton extends StatelessWidget {
+  const MukaiGlassBackButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => MukaiGlassPill.circle(
+    diameter: 44,
+    padding: 0,
+    child: IconButton(
+      tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+      icon: const BackButtonIcon(),
+      iconSize: 20,
+      onPressed: () => Navigator.of(context).maybePop(),
+    ),
+  );
 }

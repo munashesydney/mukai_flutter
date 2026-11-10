@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/scope.dart';
 import '../../data/api/api_repository.dart' show objects, string, encoded;
 import '../../design/appearance.dart';
+import '../../design/glass.dart';
 import '../../design/widgets.dart';
 import '../../domain/models.dart';
 
@@ -202,6 +203,7 @@ class _WorkspaceSearchPageState extends State<WorkspaceSearchPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Search'),
+        leading: const MukaiGlassBackButton(),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

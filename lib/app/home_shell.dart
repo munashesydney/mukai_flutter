@@ -222,38 +222,49 @@ class _HomeShellState extends State<HomeShell> {
       context: context,
       builder: (context) => ListenableBuilder(
         listenable: session,
-        builder: (context, _) => SingleChildScrollView(
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SheetGrabber(label: 'Your workspaces'),
-                for (final workspace in session.workspaces)
-                  MukaiRow(
-                    key: ValueKey('workspace-picker-${workspace.id}'),
-                    title: workspace.name,
-                    subtitle: workspace.kind,
-                    selected: workspace.id == session.workspace.id,
-                    trailing: session.workingWorkspaceIds.contains(workspace.id)
-                        ? const BouncingDots()
-                        : null,
-                    onTap: () async {
-                      _chatNavigation++;
-                      Navigator.pop(context);
-                      _canvas.currentState?.close();
-                      await session.selectWorkspace(workspace.id);
-                      if (mounted) {
-                        setState(() {
-                          _bot = null;
-                          _run = null;
-                          _index = 0;
-                        });
-                      }
-                    },
-                  ),
-                const SizedBox(height: 20),
-              ],
+        builder: (context, _) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: .85,
+          minChildSize: .25,
+          maxChildSize: 1,
+          snap: true,
+          snapSizes: const [.85, 1],
+          builder: (context, controller) => SingleChildScrollView(
+            controller: controller,
+            physics: const ClampingScrollPhysics(),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SheetGrabber(label: 'Your workspaces'),
+                  for (final workspace in session.workspaces)
+                    MukaiRow(
+                      key: ValueKey('workspace-picker-${workspace.id}'),
+                      title: workspace.name,
+                      subtitle: workspace.kind,
+                      selected: workspace.id == session.workspace.id,
+                      trailing:
+                          session.workingWorkspaceIds.contains(workspace.id)
+                          ? const BouncingDots()
+                          : null,
+                      onTap: () async {
+                        _chatNavigation++;
+                        Navigator.pop(context);
+                        _canvas.currentState?.close();
+                        await session.selectWorkspace(workspace.id);
+                        if (mounted) {
+                          setState(() {
+                            _bot = null;
+                            _run = null;
+                            _index = 0;
+                          });
+                        }
+                      },
+                    ),
+                  const SizedBox(height: 20),
+                ],
+              ),
             ),
           ),
         ),

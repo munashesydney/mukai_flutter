@@ -72,7 +72,7 @@ class _TimezoneScreenState extends State<TimezoneScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Timezone'),
-        leading: MukaiGlassPill.circle(child: const BackButton()),
+        leading: const MukaiGlassBackButton(),
       ),
       body: SafeArea(
         top: false,

@@ -43,6 +43,7 @@ class ActivitySheet extends StatelessWidget {
           color: colors.canvas,
           child: ListView(
             controller: controller,
+            physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.only(bottom: MukaiSpace.xxxl),
             children: <Widget>[
               const SheetGrabber(),

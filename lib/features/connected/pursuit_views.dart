@@ -429,12 +429,20 @@ class _PursuitPageState extends State<_PursuitPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('Pursuit'),
-      leading: MukaiGlassPill.circle(child: const BackButton()),
+      leading: const MukaiGlassBackButton(),
       actions: [
-        PopupMenuButton<String>(
-          tooltip: 'Pursuit options',
-          onSelected: _menuAction,
-          itemBuilder: _menu,
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: MukaiGlassPill.circle(
+            diameter: 44,
+            padding: 0,
+            child: PopupMenuButton<String>(
+              tooltip: 'Pursuit options',
+              icon: const Icon(Icons.more_horiz_rounded),
+              onSelected: _menuAction,
+              itemBuilder: _menu,
+            ),
+          ),
         ),
       ],
     ),

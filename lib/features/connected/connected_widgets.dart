@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../app/scope.dart';
 import '../../core/workspace_time.dart';
 import '../../design/appearance.dart';
+import '../../design/glass.dart';
 import '../../design/widgets.dart';
 
 typedef JsonMap = Map<String, dynamic>;
@@ -359,7 +360,7 @@ class ConnectedDocument extends StatelessWidget {
   final String? subtitle;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: AppBar(title: Text(title), leading: const MukaiGlassBackButton()),
     body: SafeArea(
       top: false,
       child: SingleChildScrollView(

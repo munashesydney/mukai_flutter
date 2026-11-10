@@ -262,9 +262,34 @@ void main() {
       await tester.tap(find.byTooltip('Activity'));
       await _tick(tester);
       expect(find.byType(ActivitySheet), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ActivitySheet),
+          matching: find.byIcon(Icons.close_rounded),
+        ),
+        findsNothing,
+      );
+      await tester.drag(find.text('Activity').last, const Offset(0, 600));
+      await _tick(tester);
+      expect(find.byType(ActivitySheet), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('workspace sheet dismisses by dragging its content down', (
+    tester,
+  ) async {
+    await _openWorkspace(tester);
+    await tester.tap(find.byTooltip('Open sidebar'));
+    await _tick(tester);
+    await tester.tap(find.byTooltip('Switch workspace'));
+    await _tick(tester);
+    expect(find.text('Your workspaces'), findsOneWidget);
+    await tester.drag(find.text('Your workspaces'), const Offset(0, 650));
+    await _tick(tester);
+    expect(find.text('Your workspaces'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'sidebar selects conversations and keeps the most recently opened first',
@@ -383,6 +408,10 @@ void main() {
     expect(handle, findsOneWidget);
     expect(tester.getCenter(handle).dx, closeTo(201, 0.5));
     expect(find.text('Appearance'), findsWidgets);
+    expect(find.byTooltip('Close appearance'), findsNothing);
+    await tester.drag(find.text('Appearance').last, const Offset(0, 650));
+    await _tick(tester);
+    expect(find.byType(DraggableScrollableSheet), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -118,16 +118,16 @@ private final class MukaiGlassView: UIView {
     applyGlass()
   }
 
-  /// `.regular` glass tints heavily on light backgrounds and reads as a flat
-  /// grey blob; `.clear` keeps the rim refraction without the fill, which is
-  /// how ChatGPT's light-mode controls look. Dark keeps the richer `.regular`.
+  /// Use the adaptive control material in both appearances. Clear glass is
+  /// intended for rich media backgrounds and loses definition on light pages.
   private func applyGlass() {
     if #available(iOS 26.0, *) {
       let style = traitCollection.userInterfaceStyle
       guard style != .unspecified, style != appliedStyle else { return }
       appliedStyle = style
-      let glass = UIGlassEffect(style: style == .light ? .clear : .regular)
-      glass.isInteractive = true
+      let glass = UIGlassEffect(style: .regular)
+      // Flutter owns hit testing; the material itself is not a UIKit control.
+      glass.isInteractive = false
       effectView.effect = glass
     } else {
       // Never mounted below iOS 26; stay boring if it somehow is.

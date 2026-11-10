@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
 import '../../design/appearance.dart';
-import '../../design/glass.dart';
 import '../../design/theme.dart';
 import '../../design/widgets.dart';
 
@@ -36,27 +35,12 @@ class AppearanceSheet extends StatelessWidget {
           top: false,
           child: SingleChildScrollView(
             controller: scrollController,
+            physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.only(bottom: MukaiSpace.xxl),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Stack(
-                  children: [
-                    const SheetGrabber(label: 'Appearance'),
-                    Positioned(
-                      right: 8,
-                      top: 14,
-                      child: MukaiGlassPill.circle(
-                        child: MukaiIconButton(
-                          icon: Icons.close_rounded,
-                          tooltip: 'Close appearance',
-                          border: false,
-                          onTap: () => Navigator.pop(context),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                const SheetGrabber(label: 'Appearance'),
                 SwitchListTile.adaptive(
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: MukaiSpace.screen,
