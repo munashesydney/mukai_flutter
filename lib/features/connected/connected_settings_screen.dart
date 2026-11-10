@@ -4,6 +4,7 @@ import '../settings/notifications_sheet.dart';
 
 import '../../design/widgets.dart';
 import '../settings/appearance_sheet.dart';
+import '../settings/timezone_screen.dart';
 import 'connected_widgets.dart';
 
 class ConnectedSettingsScreen extends StatelessWidget {
@@ -29,6 +30,7 @@ class ConnectedSettingsScreen extends StatelessWidget {
                   '/approvals?${workspaceQuery(context)}',
                 ),
                 connectedRequest(context, '/providers'),
+                session.remote!.refreshWorkspaceSettings(),
               ]);
               return <String, dynamic>{
                 'profile': values[0],
@@ -80,6 +82,24 @@ class ConnectedSettingsScreen extends StatelessWidget {
                     ConnectedSection(
                       'Synced with Mukai',
                       children: <Widget>[
+                        MukaiRow(
+                          title: 'Timezone',
+                          subtitle:
+                              session.workspace.timeZone ??
+                              'Not set · displaying this iPhone’s time',
+                          leading: const Icon(Icons.schedule_rounded),
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => TimezoneScreen(
+                                  workspace: session.workspace,
+                                ),
+                              ),
+                            );
+                            if (context.mounted) await reload();
+                          },
+                        ),
+                        const SoftDivider(indent: 48),
                         MukaiRow(
                           title: 'Profile',
                           subtitle: profile['mode'] == 'letter'

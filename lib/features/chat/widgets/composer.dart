@@ -7,6 +7,8 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../core/message_reference.dart';
+import 'reference_preview.dart';
 import 'package:flutter/services.dart';
 
 import '../../../design/appearance.dart';
@@ -35,6 +37,9 @@ class MukaiComposer extends StatefulWidget {
     this.onDraftChanged,
     this.onSubmit,
     this.allowQueue = false,
+    this.submitting = false,
+    this.reference,
+    this.onRemoveReference,
     this.accessMode,
     this.onModeChanged,
     this.onModelChanged,
@@ -57,6 +62,9 @@ class MukaiComposer extends StatefulWidget {
   final ValueChanged<String>? onDraftChanged;
   final Future<void> Function(String)? onSubmit;
   final bool allowQueue;
+  final bool submitting;
+  final MessageReference? reference;
+  final VoidCallback? onRemoveReference;
   final String? accessMode;
   final ValueChanged<String>? onModeChanged;
   final ValueChanged<String>? onModelChanged;
@@ -105,6 +113,11 @@ class _MukaiComposerState extends State<MukaiComposer> {
   @override
   void didUpdateWidget(covariant MukaiComposer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.reference != null && widget.reference != oldWidget.reference) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    }
     if (widget.autofocus && widget.enabled && !oldWidget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.enabled) _focus.requestFocus();
@@ -119,6 +132,7 @@ class _MukaiComposerState extends State<MukaiComposer> {
 
   bool get _canSend =>
       widget.enabled &&
+      !widget.submitting &&
       (_input.text.trim().isNotEmpty || widget.attachments.isNotEmpty) &&
       (!widget.responding || widget.allowQueue);
 
@@ -167,16 +181,17 @@ class _MukaiComposerState extends State<MukaiComposer> {
         decoration: BoxDecoration(
           color: colors.card,
           borderRadius: BorderRadius.circular(26),
-          border: Border.all(
-            color: _focus.hasFocus
-                ? colors.accentBorder
-                : colors.hairlineStrong,
-          ),
+          border: Border.all(color: colors.hairlineStrong),
           boxShadow: MukaiShadows.card(colors.brightness),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            if (widget.reference case final reference?)
+              ReferencePreview(
+                reference: reference,
+                onRemove: widget.onRemoveReference,
+              ),
             if (widget.attachments.isNotEmpty)
               SizedBox(
                 height: 44,
@@ -198,7 +213,7 @@ class _MukaiComposerState extends State<MukaiComposer> {
               ),
             TextField(
               enabled: widget.enabled,
-              autofocus: widget.autofocus,
+              autofocus: widget.autofocus || widget.reference != null,
               controller: _input,
               focusNode: _focus,
               minLines: 1,

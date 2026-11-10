@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
+import '../../core/workspace_time.dart';
 import '../../design/appearance.dart';
 import '../../design/widgets.dart';
 
@@ -14,9 +16,13 @@ List<JsonMap> objects(dynamic value) =>
 String words(dynamic value, [String fallback = '']) =>
     value == null ? fallback : value.toString();
 String label(dynamic value) => words(value).replaceAll('_', ' ');
-String dateLabel(dynamic value) {
-  final date = DateTime.tryParse(words(value))?.toLocal();
-  if (date == null) return 'Not scheduled';
+String dateLabel(BuildContext context, dynamic value) {
+  final instant = DateTime.tryParse(words(value));
+  if (instant == null) return 'Not scheduled';
+  final date = WorkspaceTime.local(
+    instant,
+    MukaiScope.sessionOf(context).workspace.timeZone,
+  );
   return '${date.month}/${date.day}/${date.year} · ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
 }
 
@@ -85,6 +91,7 @@ class ConnectedAsync extends StatefulWidget {
 class _ConnectedAsyncState extends State<ConnectedAsync>
     with WidgetsBindingObserver {
   dynamic _data;
+  String? _snapshot;
   Object? _error;
   bool _loading = true;
   bool _started = false;
@@ -102,7 +109,7 @@ class _ConnectedAsyncState extends State<ConnectedAsync>
             _foreground &&
             (ModalRoute.of(context)?.isCurrent ?? true) &&
             TickerMode.valuesOf(context).enabled) {
-          _reload();
+          _reload(background: true);
         }
       });
     }
@@ -128,23 +135,36 @@ class _ConnectedAsyncState extends State<ConnectedAsync>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (state == AppLifecycleState.resumed && !_loading) _reload();
+    if (state == AppLifecycleState.resumed && !_loading) {
+      _reload(background: true);
+    }
   }
 
-  Future<void> _reload() async {
+  Future<void> _reload({bool background = false}) async {
     final version = ++_version;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    final initial = _data == null;
+    _loading = true;
+    if (initial) setState(() => _error = null);
     try {
       final data = await widget.load();
       if (!mounted || version != _version) return;
-      setState(() => _data = data);
+      final snapshot = jsonEncode(data);
+      if (!background || snapshot != _snapshot || _error != null) {
+        setState(() {
+          _data = data;
+          _snapshot = snapshot;
+          _error = null;
+        });
+      }
     } catch (error) {
-      if (mounted && version == _version) setState(() => _error = error);
+      if (mounted && version == _version && (!background || initial)) {
+        setState(() => _error = error);
+      }
     } finally {
-      if (mounted && version == _version) setState(() => _loading = false);
+      if (mounted && version == _version) {
+        _loading = false;
+        if (initial) setState(() {});
+      }
     }
   }
 
@@ -175,7 +195,6 @@ class _ConnectedAsyncState extends State<ConnectedAsync>
     }
     return Column(
       children: <Widget>[
-        if (_loading) const LinearProgressIndicator(minHeight: 2),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.all(16),

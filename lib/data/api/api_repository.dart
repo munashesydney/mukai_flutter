@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../../core/approval_presentation.dart';
+import '../../core/workspace_time.dart';
 
 import '../../domain/models.dart';
 import '../mukai_repository.dart';
@@ -12,8 +13,8 @@ List<Map<String, dynamic>> objects(dynamic value) =>
 String string(dynamic value, [String fallback = '']) =>
     value is String ? value : fallback;
 DateTime date(dynamic value) =>
-    DateTime.tryParse(string(value))?.toLocal() ??
-    DateTime.fromMillisecondsSinceEpoch(0);
+    DateTime.tryParse(string(value))?.toUtc() ??
+    DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 String encoded(String value) => Uri.encodeComponent(value);
 
 String _activityLabel(Map<String, dynamic> activity) {
@@ -52,11 +53,13 @@ class ApiRepository implements MukaiRepository {
   List<MukaiWorkspace> workspaces = [];
   String? workspaceId;
   int _refreshGeneration = 0;
+  int _workspaceSettingsGeneration = 0, _workspaceSettingsRevision = 0;
   List<MukaiBot> _bots = [];
   List<Conversation> allConversations = [];
   List<Map<String, dynamic>> providers = [];
   Map<String, dynamic> approvals = {};
   final Map<String, List<Map<String, dynamic>>> _history = {};
+  final Map<String, List<Map<String, dynamic>>> followupUpdates = {};
 
   @override
   MukaiWorkspace get workspace =>
@@ -86,23 +89,13 @@ class ApiRepository implements MukaiRepository {
   @override
   Future<void> refresh() async {
     final generation = ++_refreshGeneration;
+    final settingsRevision = _workspaceSettingsRevision;
     final requestedWorkspace = workspaceId;
     final items = objects(await api.request('/workspaces'));
     if (generation != _refreshGeneration || requestedWorkspace != workspaceId) {
       return;
     }
-    final nextWorkspaces = items
-        .map(
-          (w) => MukaiWorkspace(
-            id: string(w['id']),
-            name: string(w['name']),
-            kind: w['computer'] == 'qemu'
-                ? 'Cloud workspace'
-                : 'Folder workspace',
-            tagline: 'A little momentum, every day.',
-          ),
-        )
-        .toList();
+    final nextWorkspaces = items.map(workspaceFromJson).toList();
     final selected = nextWorkspaces.any((w) => w.id == requestedWorkspace)
         ? requestedWorkspace
         : nextWorkspaces.firstOrNull?.id;
@@ -125,7 +118,10 @@ class ApiRepository implements MukaiRepository {
     if (generation != _refreshGeneration || requestedWorkspace != workspaceId) {
       return;
     }
-    workspaces = nextWorkspaces;
+    if (settingsRevision == _workspaceSettingsRevision) {
+      workspaces = nextWorkspaces;
+      _workspaceSettingsRevision++;
+    }
     workspaceId = selected;
     providers = objects(data[2]);
     _bots = objects(data[0]).map(botFromJson).toList()
@@ -148,6 +144,57 @@ class ApiRepository implements MukaiRepository {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     providers = objects(data[2]);
     approvals = object(data[3]);
+  }
+
+  MukaiWorkspace workspaceFromJson(
+    Map<String, dynamic> value,
+  ) => MukaiWorkspace(
+    id: string(value['id']),
+    name: string(value['name']),
+    timeZone: value['timeZone'] is String ? value['timeZone'] as String : null,
+    kind: value['computer'] == 'qemu' ? 'Cloud workspace' : 'Folder workspace',
+    tagline: 'A little momentum, every day.',
+  );
+
+  /// Refresh settings even while a chat is streaming, without replacing chat state.
+  Future<void> refreshWorkspaceSettings() async {
+    final generation = ++_workspaceSettingsGeneration;
+    final revision = _workspaceSettingsRevision;
+    final selected = workspaceId;
+    final values = objects(await api.request('/workspaces'));
+    if (generation != _workspaceSettingsGeneration ||
+        revision != _workspaceSettingsRevision ||
+        selected != workspaceId) {
+      return;
+    }
+    workspaces = values.map(workspaceFromJson).toList();
+    _workspaceSettingsRevision++;
+  }
+
+  Future<void> saveWorkspaceTimeZone(String id, String timeZone) async {
+    if (!WorkspaceTime.isValid(timeZone)) {
+      throw const ApiException('Choose a valid timezone.');
+    }
+    _workspaceSettingsGeneration++;
+    _workspaceSettingsRevision++;
+    final saved = workspaceFromJson(
+      object(
+        await api.request(
+          '/workspaces/${encoded(id)}/timezone',
+          method: 'PUT',
+          body: {'timeZone': timeZone},
+        ),
+      ),
+    );
+    if (saved.id != id || saved.timeZone == null) {
+      throw const ApiException(
+        'The server did not save the workspace timezone. Update Mukai and try again.',
+      );
+    }
+    _workspaceSettingsRevision++;
+    workspaces = workspaces
+        .map((workspace) => workspace.id == id ? saved : workspace)
+        .toList();
   }
 
   MukaiBot botFromJson(Map<String, dynamic> b) {
@@ -184,11 +231,24 @@ class ApiRepository implements MukaiRepository {
       botId: string(c['ownerBotId'], ids.firstOrNull ?? ''),
       botIds: ids,
       kind: string(c['kind'], 'private'),
+      pursuitId: c['pursuitId'] as String?,
+      runId: c['runId'] as String?,
       isWorking: c['isWorking'] == true,
       description: string(c['description']),
       preview: string(c['description']),
       updatedAt: date(c['updatedAt']),
     );
+  }
+
+  Future<Conversation> getConversation(String id) async {
+    final selected = workspace.id;
+    final value = object(await api.request('/conversations/${encoded(id)}'));
+    if (value['workspaceId'] != selected || workspace.id != selected) {
+      throw const ApiException(
+        'This conversation belongs to another workspace.',
+      );
+    }
+    return conversationFromJson(value);
   }
 
   @override
@@ -309,7 +369,23 @@ class ApiRepository implements MukaiRepository {
 
     if (parts.isNotEmpty) {
       for (final p in parts) {
-        if (p['type'] == 'text' || p['type'] == 'steering') {
+        if (p['type'] == 'steering') {
+          blocks.add(
+            SteeringBlock(
+              string(p['text']),
+              id: string(p['id']),
+              attachments: [
+                for (final file in objects(p['attachments']))
+                  LinkBlock(
+                    title: string(file['name']),
+                    url: 'mukai-attachment:${string(file['id'])}',
+                    image: string(file['mediaType']).startsWith('image/'),
+                  ),
+              ],
+            ),
+          );
+        }
+        if (p['type'] == 'text') {
           blocks.add(
             TextBlock(
               string(p['text']),
@@ -411,6 +487,8 @@ class ApiRepository implements MukaiRepository {
         blocks.add(approvalFromJson(a));
       }
     }
+    final source = object(m['notificationSource']);
+    final sourceId = string(source['conversationId']);
     return ChatMessage(
       id: string(m['id']),
       conversationId: conversationId,
@@ -425,6 +503,14 @@ class ApiRepository implements MukaiRepository {
       status: string(m['status']),
       requestId: string(m['requestId']),
       error: m['error'] as String?,
+      notificationSource: sourceId.isEmpty
+          ? null
+          : NotificationSource(
+              conversationId: sourceId,
+              name: string(source['name']),
+              pursuitId: source['pursuitId'] as String?,
+              runId: source['runId'] as String?,
+            ),
     );
   }
 
@@ -454,6 +540,7 @@ class ApiRepository implements MukaiRepository {
   }) async* {
     final key = conversationKey(botId, conversationId);
     final history = _history.putIfAbsent(key, () => []);
+    followupUpdates.remove(key);
     void upsert(dynamic value) {
       final m = object(value);
       if (m.isEmpty) return;
@@ -479,6 +566,9 @@ class ApiRepository implements MukaiRepository {
             },
     )) {
       final type = event['type'];
+      if (type == 'followups') {
+        followupUpdates[key] = objects(event['followups']);
+      }
       if (type == 'start') {
         upsert(event['user']);
         upsert(event['assistant']);

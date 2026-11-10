@@ -15,6 +15,8 @@ import '../features/settings/settings_screen.dart';
 import '../features/search/workspace_search.dart';
 import '../features/connected/connected_features_screen.dart';
 import '../features/connected/connected_settings_screen.dart';
+import '../features/connected/pursuit_sidebar.dart';
+import '../features/connected/connected_widgets.dart' show connectionNotice;
 import 'scope.dart';
 
 class HomeShell extends StatefulWidget {
@@ -37,6 +39,12 @@ class _HomeShellState extends State<HomeShell> {
   String _kind = 'private';
   String? _chatTitle;
   List<String> _memberBotIds = [];
+  ({String pursuitId, String runId})? _run;
+  String? _closingRunId;
+  final Set<String> _joinedRuns = {};
+  int _chatNavigation = 0;
+  String? _historyWorkspace;
+  int _historyLimit = 12;
 
   @override
   void initState() {
@@ -80,14 +88,9 @@ class _HomeShellState extends State<HomeShell> {
       if (conversation == null &&
           session.api != null &&
           session.remote != null) {
-        final raw = Map<String, dynamic>.from(
-          await session.api!.request(
-                '/conversations/${Uri.encodeComponent(target.conversationId)}',
-              )
-              as Map,
+        conversation = await session.remote!.getConversation(
+          target.conversationId,
         );
-        if (raw['workspaceId'] != target.workspaceId) return;
-        conversation = session.remote!.conversationFromJson(raw);
       }
       if (mounted &&
           navigation == _pushNavigation &&
@@ -105,7 +108,10 @@ class _HomeShellState extends State<HomeShell> {
     _canvas.currentState?.open();
     // Include new chats and changes made elsewhere when navigation opens.
     final session = MukaiScope.sessionOf(context);
-    if (session.api != null) session.loadRecents();
+    if (session.api != null) {
+      session.loadRecents();
+      session.pursuitSidebar?.refresh(session.workspace.id, force: true);
+    }
   }
 
   @override
@@ -115,11 +121,14 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _destination(int index) {
+    _chatNavigation++;
     MukaiScope.sessionOf(context).showWorkspace();
     _canvas.currentState?.close();
     setState(() {
       _index = index;
       _bot = null;
+      _run = null;
+      _closingRunId = null;
     });
   }
 
@@ -130,9 +139,12 @@ class _HomeShellState extends State<HomeShell> {
     String kind = 'private',
     String? title,
   }) {
+    _chatNavigation++;
     _canvas.currentState?.close();
     setState(() {
       _bot = bot;
+      _run = null;
+      _closingRunId = null;
       _kind = kind;
       _chatTitle = title;
       _conversationId = conversationId;
@@ -142,8 +154,16 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _openConversation(Conversation conversation) {
+    if (conversation.kind == 'pursuit_run' &&
+        conversation.pursuitId != null &&
+        conversation.runId != null) {
+      _openPursuitRun(conversation.pursuitId!, conversation.runId!);
+      return;
+    }
     final session = MukaiScope.sessionOf(context);
-    final bot = conversation.kind == 'space' && conversation.botIds.isEmpty
+    final bot = conversation.kind == 'bot' && conversation.botIds.length == 2
+        ? session.remote!.botById(conversation.botIds[1])
+        : conversation.kind == 'space' && conversation.botIds.isEmpty
         ? session.remote!.botById('')
         : session.bots.where((b) => b.id == conversation.botId).firstOrNull ??
               session.bots
@@ -157,6 +177,41 @@ class _HomeShellState extends State<HomeShell> {
       kind: conversation.kind,
       title: conversation.title,
     );
+  }
+
+  void _openPursuitRun(String pursuitId, String runId) {
+    _chatNavigation++;
+    final session = MukaiScope.sessionOf(context);
+    session.showWorkspace();
+    session.pursuitSidebar?.ensureRuns(pursuitId);
+    _canvas.currentState?.close();
+    setState(() {
+      _index = 1;
+      _bot = null;
+      _run = (pursuitId: pursuitId, runId: runId);
+      _closingRunId = null;
+    });
+  }
+
+  Future<void> _openNotificationSource(NotificationSource source) async {
+    if (source.isRun) {
+      _openPursuitRun(source.pursuitId!, source.runId!);
+      return;
+    }
+    final navigation = ++_chatNavigation;
+    try {
+      final repository = MukaiScope.sessionOf(context).remote!;
+      final conversation = await repository.getConversation(
+        source.conversationId,
+      );
+      if (mounted && navigation == _chatNavigation) {
+        _openConversation(conversation);
+      }
+    } catch (error) {
+      if (mounted && navigation == _chatNavigation) {
+        connectionNotice(context, error);
+      }
+    }
   }
 
   Future<void> _switchWorkspace() async {
@@ -183,12 +238,14 @@ class _HomeShellState extends State<HomeShell> {
                         ? const BouncingDots()
                         : null,
                     onTap: () async {
+                      _chatNavigation++;
                       Navigator.pop(context);
                       _canvas.currentState?.close();
                       await session.selectWorkspace(workspace.id);
                       if (mounted) {
                         setState(() {
                           _bot = null;
+                          _run = null;
                           _index = 0;
                         });
                       }
@@ -218,7 +275,7 @@ class _HomeShellState extends State<HomeShell> {
       _openConversation(result.conversation!);
     } else {
       _destination(1);
-      await openPursuit(context, result.id, _openConversation);
+      await openPursuit(context, result.id, _openPursuitRun);
     }
   }
 
@@ -281,11 +338,48 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _buildShell(BuildContext context) {
     final session = MukaiScope.sessionOf(context);
+    final run = _run;
     MukaiScope.pushOf(
       context,
-    )?.visible(_bot == null ? null : session.conversationId);
+    )?.visible(_bot == null && run == null ? null : session.conversationId);
     final Widget body;
-    if (_bot != null) {
+    if (run != null) {
+      body = TweenAnimationBuilder<double>(
+        key: ValueKey('run-entrance-${run.runId}'),
+        tween: Tween(
+          begin: MediaQuery.disableAnimationsOf(context) ? 1 : 0,
+          end: _closingRunId == run.runId ? 0 : 1,
+        ),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 340),
+        curve: _closingRunId == run.runId
+            ? Curves.easeInCubic
+            : Curves.easeOutCubic,
+        onEnd: () {
+          if (_closingRunId != run.runId || _run != run) return;
+          _destination(1);
+          openPursuit(context, run.pursuitId, _openPursuitRun, animate: false);
+        },
+        builder: (context, value, child) => FractionalTranslation(
+          translation: Offset(0, 1 - value),
+          child: child,
+        ),
+        child: PursuitRunChat(
+          key: ValueKey(run.runId),
+          pursuitId: run.pursuitId,
+          runId: run.runId,
+          joined: _joinedRuns.contains(run.runId),
+          onJoin: () => setState(() => _joinedRuns.add(run.runId)),
+          onMenu: _openSidebar,
+          onHistory: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            setState(() => _closingRunId = run.runId);
+          },
+          onOpenSource: _openNotificationSource,
+        ),
+      );
+    } else if (_bot != null) {
       body = ChatScreen(
         key: ValueKey<int>(_chatKey),
         bot: _bot!,
@@ -296,6 +390,7 @@ class _HomeShellState extends State<HomeShell> {
         title: _chatTitle,
         onMenu: _openSidebar,
         onNewChat: _newChat,
+        onOpenSource: _openNotificationSource,
       );
     } else {
       body = SafeArea(
@@ -345,6 +440,7 @@ class _HomeShellState extends State<HomeShell> {
                               'tools',
                             ][_index],
                             onOpenConversation: _openConversation,
+                            onOpenRun: _openPursuitRun,
                           ))
                   : IndexedStack(
                       index: _index,
@@ -416,6 +512,9 @@ class _HomeShellState extends State<HomeShell> {
     final colors = MukaiColors.of(context);
     final session = MukaiScope.sessionOf(context);
     final conversations = session.sidebarConversations;
+    final historyLimit = _historyWorkspace == session.workspace.id
+        ? _historyLimit
+        : 12;
     final workingConversations = session.workingConversationIds;
     final activeConversationId = _bot == null ? null : session.conversationId;
     return SafeArea(
@@ -470,12 +569,6 @@ class _HomeShellState extends State<HomeShell> {
                                         ?.copyWith(color: colors.textSecondary),
                                   ),
                                 ),
-                                if (session.workingWorkspaceIds.contains(
-                                  session.workspace.id,
-                                )) ...[
-                                  const SizedBox(width: 8),
-                                  const BouncingDots(),
-                                ],
                                 const SizedBox(width: 5),
                                 Icon(
                                   Icons.keyboard_arrow_down_rounded,
@@ -500,7 +593,7 @@ class _HomeShellState extends State<HomeShell> {
                           if (session.updateCount > 0)
                             (5, 'Updates', Icons.notifications_none_rounded),
                           (3, 'Tools', Icons.extension_outlined),
-                        ])
+                        ]) ...[
                       _SidebarItem(
                         label: label,
                         badge: index == 5
@@ -509,6 +602,9 @@ class _HomeShellState extends State<HomeShell> {
                                   : session.updateCount)
                             : null,
                         icon: icon,
+                        activityLabel: index == 1 && session.hasRunningPursuit
+                            ? 'Pursuit running'
+                            : null,
                         leading: index == 0 && minimalism
                             ? const GhostAvatar(
                                 mascot: Mascot.logo,
@@ -516,9 +612,19 @@ class _HomeShellState extends State<HomeShell> {
                                 size: 20,
                               )
                             : null,
-                        selected: _bot == null && _index == index,
+                        selected:
+                            _bot == null && _run == null && _index == index,
                         onTap: () => _destination(index),
                       ),
+                      if (index == 1 && _index == 1 && session.api != null)
+                        PursuitSidebar(
+                          key: ValueKey(session.workspace.id),
+                          selectedPursuitId: _run?.pursuitId,
+                          selectedRunId: _run?.runId,
+                          onOpenRun: _openPursuitRun,
+                          state: session.pursuitSidebar!,
+                        ),
+                    ],
                     const Padding(
                       padding: EdgeInsets.fromLTRB(14, 25, 14, 10),
                       child: _SidebarHeading('Conversations'),
@@ -534,21 +640,32 @@ class _HomeShellState extends State<HomeShell> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
-                    for (final conversation in conversations)
-                      _SidebarItem(
-                        key: ValueKey(
-                          'sidebar-conversation-${conversation.id}',
+                    for (final (index, conversation) in conversations.indexed)
+                      if (index < historyLimit ||
+                          conversation.id == activeConversationId)
+                        _SidebarItem(
+                          key: ValueKey(
+                            'sidebar-conversation-${conversation.id}',
+                          ),
+                          label: conversation.title,
+                          selected: activeConversationId == conversation.id,
+                          trailing:
+                              workingConversations.contains(conversation.id)
+                              ? const BouncingDots()
+                              : null,
+                          leading: _ConversationAvatar(
+                            conversation: conversation,
+                            bots: session.bots,
+                          ),
+                          onTap: () => _openConversation(conversation),
                         ),
-                        label: conversation.title,
-                        selected: activeConversationId == conversation.id,
-                        trailing: workingConversations.contains(conversation.id)
-                            ? const BouncingDots()
-                            : null,
-                        leading: _ConversationAvatar(
-                          conversation: conversation,
-                          bots: session.bots,
-                        ),
-                        onTap: () => _openConversation(conversation),
+                    if (conversations.length > historyLimit)
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _historyWorkspace = session.workspace.id;
+                          _historyLimit = historyLimit + 12;
+                        }),
+                        child: const Text('Load more conversations'),
                       ),
                   ],
                 ),
@@ -701,6 +818,7 @@ class _SidebarItem extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.icon,
+    this.activityLabel,
     this.leading,
     this.trailing,
     this.selected = false,
@@ -710,6 +828,7 @@ class _SidebarItem extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final IconData? icon;
+  final String? activityLabel;
   final Widget? leading;
   final Widget? trailing;
   final bool selected;
@@ -717,6 +836,7 @@ class _SidebarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = MukaiColors.of(context);
+    final iconColor = selected ? colors.accentInk : colors.textSecondary;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(
@@ -731,11 +851,20 @@ class _SidebarItem extends StatelessWidget {
           ),
           leading:
               leading ??
-              Icon(
-                icon,
-                size: 20,
-                color: selected ? colors.accentInk : colors.textSecondary,
-              ),
+              (activityLabel == null
+                  ? Icon(icon, size: 20, color: iconColor)
+                  : SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(
+                        color: iconColor,
+                        strokeWidth: 2,
+                        value: MediaQuery.disableAnimationsOf(context)
+                            ? .75
+                            : null,
+                        semanticsLabel: activityLabel,
+                        semanticsValue: '',
+                      ),
+                    )),
           trailing:
               trailing ??
               (badge == null

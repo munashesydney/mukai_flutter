@@ -14,6 +14,8 @@ import '../data/api/api_repository.dart';
 
 import '../data/mukai_repository.dart';
 import '../domain/models.dart';
+import 'pursuit_sidebar_state.dart';
+import '../core/message_reference.dart';
 
 class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   SessionController(this._repository) {
@@ -21,12 +23,15 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
       WidgetsBinding.instance.addObserver(this);
       _startPolling();
       unawaited(refreshNotices());
+      pursuitSidebar = PursuitSidebarState(api!);
+      unawaited(pursuitSidebar!.refresh(workspace.id));
     }
   }
 
   ApiRepository? get remote =>
       _repository is ApiRepository ? _repository : null;
   MukaiApiClient? get api => remote?.api;
+  PursuitSidebarState? pursuitSidebar;
   List<MukaiWorkspace> get workspaces => remote?.workspaces ?? [workspace];
   String? get conversationId => _conversationId;
   bool _space = false;
@@ -45,7 +50,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   Completer<void>? _sendCompletion;
   Future<void> _cancelLiveSubscription() async {
     // Detaching the phone's stream does not stop the server's response.
-    if (remote != null && _bot != null && responding) {
+    if (remote != null && _respondingInConversation) {
       _backgroundWorking[(workspace.id, _conversationId ?? 'bot-${bot.id}')] =
           bot.id;
     }
@@ -62,13 +67,40 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   final List<Map<String, dynamic>> attachments = [];
   List<Map<String, dynamic>> followups = [];
   final Map<String, String> drafts = {};
-  final Map<String, ({String text, String id})> _uncertainRequests = {};
+  final Map<String, MessageReference> references = {};
+  MessageReference? get reference => references[draftKey];
+  void setReference(MessageReference? value, {String? conversationId}) {
+    final key = conversationId ?? draftKey;
+    if (value == null) {
+      references.remove(key);
+    } else {
+      references[key] = value;
+    }
+    _emit();
+  }
+
+  ChatMessage? get activeReply =>
+      _thread.where((m) => !m.fromUser && m.streaming).lastOrNull;
+  final Set<String> pendingFollowupActions = {};
+  final Map<String, ({String text, String id, bool queued})>
+  _uncertainRequests = {};
+  final Set<String> _queueSubmitting = {};
+  bool get submittingFollowup => _queueSubmitting.contains(draftKey);
   void _reconcileDraft(String key, List<ChatMessage> messages) {
     final pending = _uncertainRequests[key];
     if (pending != null &&
-        messages.any((m) => m.requestId == pending.id && m.fromUser)) {
+        (messages.any((m) => m.requestId == pending.id && m.fromUser) ||
+            followups.any((item) => item['id'] == pending.id) ||
+            messages
+                .expand((m) => m.blocks)
+                .whereType<SteeringBlock>()
+                .any((b) => b.id == pending.id))) {
       _uncertainRequests.remove(key);
-      if (drafts[key] == pending.text) drafts.remove(key);
+      final submitted = splitMessageReference(pending.text);
+      if (drafts[key] == submitted.text) drafts.remove(key);
+      if (references[key]?.format(submitted.text) == pending.text) {
+        references.remove(key);
+      }
     }
   }
 
@@ -184,6 +216,10 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     _polling = true;
     final generation = _generation;
     try {
+      if (_chatVisible && _bot != null) {
+        await remote!.refreshWorkspaceSettings();
+      }
+      if (!_isCurrent(generation)) return;
       if (!_chatVisible) {
         await remote!.refresh();
         if (_isCurrent(generation)) {
@@ -214,8 +250,8 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
               );
         if (_isCurrent(generation)) {
           _thread = thread;
-          _reconcileDraft(draftKey, thread);
           followups = pending;
+          _reconcileDraft(draftKey, thread);
         }
       } else {
         remote!.approvals = object(
@@ -245,6 +281,14 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<void> setWorkspaceTimeZone(String workspaceId, String timeZone) async {
+    if (remote == null) {
+      throw const ApiException('Connect to your Mukai to change its timezone.');
+    }
+    await remote!.saveWorkspaceTimeZone(workspaceId, timeZone);
+    if (!_disposed) _emit();
+  }
+
   void selectSpaceBot(String id) {
     if (!_space || responding) return;
     _bot = _repository.botById(id);
@@ -263,6 +307,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     followups = [];
     _responding = false;
     remote!.workspaceId = id;
+    unawaited(pursuitSidebar?.refresh(id));
     updateCount = 0;
     unreadUpdateCount = 0;
     aiActivity = {};
@@ -359,17 +404,37 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  Future<void> updateFollowup(String id, String action, {String? text}) async {
-    if (api == null) return;
+  Future<bool> updateFollowup(String id, String action, {String? text}) async {
+    if (api == null || !pendingFollowupActions.add(id)) return false;
+    final active = activeReply;
+    if (action == 'steer' && active == null) {
+      pendingFollowupActions.remove(id);
+      _error = 'Wait for the bot to start responding before steering.';
+      _emit();
+      return false;
+    }
     final path = '${remote!.root(bot.id, _conversationId)}/followups';
-    await _mutation(
-      () => api!.request(
-        path,
-        method: 'PUT',
-        body: {'id': id, 'action': action, 'text': ?text},
-      ),
-      (value) => followups = objects(value),
-    );
+    _error = null;
+    _emit();
+    try {
+      await _mutation(
+        () => api!.request(
+          path,
+          method: 'PUT',
+          body: {
+            'id': id,
+            'action': action,
+            'text': ?text,
+            if (action == 'steer') 'expectedRequestId': active!.requestId,
+          },
+        ),
+        (value) => followups = objects(value),
+      );
+      return _error == null;
+    } finally {
+      pendingFollowupActions.remove(id);
+      _emit();
+    }
   }
 
   Future<void> saveMessage(ChatMessage message) async {
@@ -479,18 +544,23 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Iterable<Map<String, dynamic>> get _conversationWork sync* {
-    for (final state in [
-      'running',
-      'queued',
-      'pursuitRunning',
-      'pursuitQueued',
-    ]) {
+    for (final state in ['running', 'queued']) {
       for (final work in objects(aiActivity[state])) {
         final workWorkspace = work['workspaceId'];
-        if (workWorkspace == null || workWorkspace == workspace.id) yield work;
+        final kind = work['kind'];
+        if ((kind == null || kind == 'chat') &&
+            (workWorkspace == null || workWorkspace == workspace.id)) {
+          yield work;
+        }
       }
     }
   }
+
+  bool get hasRunningPursuit => objects(
+    aiActivity['pursuitRunning'],
+  ).any((run) => run['workspaceId'] == workspace.id);
+
+  bool get _respondingInConversation => !readOnly && _bot != null && responding;
 
   /// The picker includes running work in every workspace, not just this one.
   Set<String> get workingWorkspaceIds => {
@@ -515,7 +585,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
         string(work['conversationId']),
     for (final entry in _backgroundWorking.keys)
       if (entry.$1 == workspace.id) entry.$2,
-    if (_bot != null && responding) _conversationId ?? 'bot-${bot.id}',
+    if (_respondingInConversation) _conversationId ?? 'bot-${bot.id}',
   };
 
   Set<String> get workingBotIds {
@@ -531,7 +601,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
         if (string(work['botId']).isNotEmpty) string(work['botId']),
       for (final entry in _backgroundWorking.entries)
         if (entry.key.$1 == workspace.id) entry.value,
-      if (_bot != null && responding) bot.id,
+      if (_respondingInConversation) bot.id,
     };
   }
 
@@ -554,6 +624,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     _cancelLiveSubscription();
     if (remote != null) {
       WidgetsBinding.instance.removeObserver(this);
+      pursuitSidebar?.dispose();
       api!.close();
     }
     super.dispose();
@@ -586,6 +657,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     if (sameBot && _space == space && readOnly == viewOnly) {
       _touchConversation();
       _emit();
+      if (remote != null) unawaited(refreshLive());
       return;
     }
     await _cancelLiveSubscription();
@@ -671,14 +743,13 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   // --- Sending --------------------------------------------------------------
 
-  /// Optimistic send followed by a streamed reply. Ignored while a reply is in
-  /// flight, matching how the desktop composer disables itself.
-  Future<void> send(String rawText) async {
+  /// Sends a reply or queues a follow-up while the connected bot is working.
+  Future<void> send(String rawText, {bool queue = false}) async {
     final String text = rawText.trim();
     if (_loading || (text.isEmpty && attachments.isEmpty) || readOnly) return;
     _touchConversation();
     if (remote != null) {
-      await _sendLive(text);
+      await _sendLive(text, queue: queue);
       return;
     }
     if (_responding) return;
@@ -743,27 +814,59 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _sendLive(String text, {String? retryMessageId}) async {
+  Future<void> _sendLive(
+    String text, {
+    String? retryMessageId,
+    bool queue = false,
+  }) async {
     if (_bot == null) return;
-    if (_responding || _thread.any((m) => m.streaming)) {
-      final key = draftKey;
+    final key = draftKey;
+    final selected = reference;
+    final sentText = selected?.format(text) ?? text;
+    if (queue ||
+        responding ||
+        (_uncertainRequests[key]?.queued == true &&
+            _uncertainRequests[key]?.text == sentText)) {
+      if (!_queueSubmitting.add(key)) return;
+      _error = null;
+      _emit();
+      final pending = _uncertainRequests[key];
+      final requestId = pending?.text == sentText
+          ? pending!.id
+          : newRequestId();
+      _uncertainRequests[key] = (text: sentText, id: requestId, queued: true);
       final ids = attachments.map((a) => string(a['id'])).toList();
       final path = '${remote!.root(bot.id, _conversationId)}/followups';
       final body = {
-        'id': newRequestId(),
-        'text': text,
+        'id': requestId,
+        'text': sentText,
         'attachmentIds': ids,
         if (_space) 'botId': bot.id.isEmpty ? null : bot.id,
       };
-      await _mutation(() => api!.request(path, method: 'POST', body: body), (
-        value,
-      ) {
-        followups = objects(value);
-        attachments.removeWhere((a) => ids.contains(a['id']));
-        if (drafts[key] == text || drafts[key]?.isEmpty == true) {
-          drafts.remove(key);
+      try {
+        await _mutation(() => api!.request(path, method: 'POST', body: body), (
+          value,
+        ) {
+          followups = objects(value);
+          if (_uncertainRequests[key]?.id == requestId) {
+            _uncertainRequests.remove(key);
+          }
+          if (references[key] == selected) references.remove(key);
+          attachments.removeWhere((a) => ids.contains(a['id']));
+          if (drafts[key] == text || drafts[key]?.isEmpty == true) {
+            drafts.remove(key);
+          }
+        });
+        if (_error != null &&
+            draftKey == key &&
+            (drafts[key]?.isEmpty ?? true)) {
+          drafts[key] = text;
+          _emit();
         }
-      });
+      } finally {
+        _queueSubmitting.remove(key);
+        _emit();
+      }
       return;
     }
     _error = null;
@@ -771,17 +874,16 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     _emit();
     final generation = ++_generation;
     final sentAttachments = attachments.map((a) => string(a['id'])).toList();
-    final key = draftKey;
     final pending = _uncertainRequests[key];
-    final requestId = pending?.text == text ? pending!.id : newRequestId();
-    _uncertainRequests[key] = (text: text, id: requestId);
+    final requestId = pending?.text == sentText ? pending!.id : newRequestId();
+    _uncertainRequests[key] = (text: sentText, id: requestId, queued: false);
     bool accepted = false;
     final complete = Completer<void>();
     _sendCompletion = complete;
     _liveSubscription = remote!
         .streamReply(
           botId: bot.id,
-          text: text,
+          text: sentText,
           conversationId: _conversationId,
           requestId: requestId,
           attachmentIds: sentAttachments,
@@ -792,10 +894,16 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
           (thread) {
             if (!_isCurrent(generation)) return;
             _thread = thread;
+            if (remote!.followupUpdates.containsKey(key)) {
+              followups = remote!.followupUpdates[key]!;
+            }
             accepted =
                 accepted ||
                 thread.any((m) => m.requestId == requestId && m.fromUser);
-            if (accepted) _uncertainRequests.remove(key);
+            if (accepted) {
+              _uncertainRequests.remove(key);
+              if (references[key] == selected) references.remove(key);
+            }
             final failure = thread
                 .where((m) => m.status == 'failed')
                 .lastOrNull;
@@ -982,6 +1090,7 @@ class SessionController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       await _repository.refresh();
       if (generation != _workspaceGeneration) return;
+      unawaited(pursuitSidebar?.refresh(workspace.id));
       _reconcileBackgroundWorking();
       _recents = _repository.recentConversations(limit: limit);
     } on MukaiDataException catch (failure) {

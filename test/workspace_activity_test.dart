@@ -85,7 +85,7 @@ void main() {
   );
 
   testWidgets(
-    'the app workspace picker updates dots live on selected and other workspaces',
+    'pursuit activity spins the nav icon and shows dots only inside the picker',
     (tester) async {
       tester.view.physicalSize = const Size(402, 874);
       tester.view.devicePixelRatio = 1;
@@ -94,10 +94,8 @@ void main() {
       final session = _PickerSession();
       final appearance = AppearanceController();
       session.aiActivity = {
-        'running': [
-          {'workspaceId': session.workspace.id, 'botId': 'scout'},
-        ],
         'pursuitRunning': [
+          {'workspaceId': session.workspace.id, 'botId': 'scout'},
           {'workspaceId': other.id, 'botId': 'remote-agent'},
         ],
       };
@@ -117,8 +115,22 @@ void main() {
         ),
       );
       await frame(tester);
-      expect(find.byType(BouncingDots), findsWidgets);
-      await tester.tap(find.text(session.workspace.name));
+      expect(find.byType(BouncingDots), findsNothing);
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await frame(tester);
+      expect(find.byType(BouncingDots), findsNothing);
+      final pursuits = find.widgetWithText(ListTile, 'Pursuits');
+      final spinner = find.descendant(
+        of: pursuits,
+        matching: find.byType(CircularProgressIndicator),
+      );
+      final target = find.descendant(
+        of: pursuits,
+        matching: find.byIcon(Icons.track_changes_rounded),
+      );
+      expect(spinner, findsOneWidget);
+      expect(target, findsNothing);
+      await tester.tap(find.byTooltip('Switch workspace'));
       await frame(tester);
       Finder row(String id) => find.byKey(ValueKey('workspace-picker-$id'));
       Finder dots(String id) =>
@@ -151,6 +163,10 @@ void main() {
       await frame(tester);
       expect(find.byType(BouncingDots), findsNothing);
       expect(find.text('Your workspaces'), findsOneWidget);
+      Navigator.of(tester.element(find.text('Your workspaces'))).pop();
+      await frame(tester);
+      expect(spinner, findsNothing);
+      expect(target, findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

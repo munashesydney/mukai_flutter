@@ -17,9 +17,11 @@ class MukaiWorkspace {
     required this.tagline,
     required this.kind,
     this.id = 'default',
+    this.timeZone,
   });
 
   final String id;
+  final String? timeZone;
   final String name;
   final String tagline;
 
@@ -68,6 +70,8 @@ class Conversation {
     this.isWorking = false,
     this.description = '',
     this.botIds = const [],
+    this.pursuitId,
+    this.runId,
   });
 
   final String kind;
@@ -79,6 +83,21 @@ class Conversation {
   final String botId;
   final DateTime updatedAt;
   final String preview;
+  final String? pursuitId, runId;
+}
+
+@immutable
+class NotificationSource {
+  const NotificationSource({
+    required this.conversationId,
+    required this.name,
+    this.pursuitId,
+    this.runId,
+  });
+
+  final String conversationId, name;
+  final String? pursuitId, runId;
+  bool get isRun => pursuitId != null && runId != null;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +120,20 @@ class TextBlock extends ChatBlock {
   @override
   String? get stableId => id;
   final String text;
+}
+
+class SteeringBlock extends ChatBlock {
+  const SteeringBlock(
+    this.text, {
+    required this.id,
+    this.attachments = const [],
+  });
+  final String text, id;
+  final List<LinkBlock> attachments;
+  @override
+  bool get isProcess => true;
+  @override
+  String get stableId => id;
 }
 
 class HeadingBlock extends ChatBlock {
@@ -234,9 +267,11 @@ class ChatMessage {
     this.startedAt,
     this.finishedAt,
     this.conversationId,
+    this.notificationSource,
   });
 
   final String? conversationId;
+  final NotificationSource? notificationSource;
   final DateTime? startedAt, finishedAt;
   final String id;
   final bool fromUser;
@@ -266,6 +301,7 @@ class ChatMessage {
     requestId: requestId,
     error: error,
     conversationId: conversationId,
+    notificationSource: notificationSource,
     startedAt: startedAt,
     finishedAt: finishedAt,
     streaming: streaming ?? this.streaming,

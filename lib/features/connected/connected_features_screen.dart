@@ -1,30 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../../core/format.dart';
+import '../../core/workspace_time.dart';
 
 import '../../app/scope.dart';
 import '../../design/appearance.dart';
 import '../../design/widgets.dart';
 import '../../design/disclosure.dart';
 import '../../domain/models.dart';
+import '../chat/chat_screen.dart';
 import '../chat/widgets/open_content.dart';
 import '../chat/widgets/file_preview.dart';
-import '../chat/widgets/message_bubble.dart';
 import '../../core/response_reference.dart';
+import '../../core/message_reference.dart';
 import 'connected_widgets.dart';
 
 part 'pursuit_views.dart';
 part 'updates_screen.dart';
 
+typedef OpenPursuitRun = void Function(String pursuitId, String runId);
+
 Future<void> openPursuit(
   BuildContext context,
   String id,
-  ValueChanged<Conversation> onOpenConversation,
-) => Navigator.of(context).push<void>(
-  MaterialPageRoute(
-    builder: (_) =>
-        _PursuitPage(id: id, onOpenConversation: onOpenConversation),
-  ),
+  OpenPursuitRun onOpenRun, {
+  bool animate = true,
+}) => Navigator.of(context).push<void>(
+  animate
+      ? MaterialPageRoute(
+          builder: (_) => _PursuitPage(id: id, onOpenRun: onOpenRun),
+        )
+      : PageRouteBuilder(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, _, _) => _PursuitPage(id: id, onOpenRun: onOpenRun),
+        ),
 );
 
 class ConnectedFeaturesScreen extends StatelessWidget {
@@ -32,14 +42,16 @@ class ConnectedFeaturesScreen extends StatelessWidget {
     super.key,
     required this.kind,
     required this.onOpenConversation,
-  });
+    this.onOpenRun,
+  }) : assert(kind != 'pursuits' || onOpenRun != null);
   final String kind;
   final ValueChanged<Conversation> onOpenConversation;
+  final OpenPursuitRun? onOpenRun;
 
   @override
   Widget build(BuildContext context) {
     if (kind == 'pursuits') {
-      return _PursuitsScreen(onOpenConversation: onOpenConversation);
+      return _PursuitsScreen(onOpenRun: onOpenRun!);
     }
     final workspaceId = MukaiScope.sessionOf(context).workspace.id;
     final title = switch (kind) {
@@ -160,19 +172,13 @@ class ConnectedFeaturesScreen extends StatelessWidget {
                                 }
                                 await Navigator.of(context).push(
                                   MaterialPageRoute<void>(
-                                    builder: (_) => kind == 'pursuits'
-                                        ? _PursuitPage(
-                                            id: words(row['id']),
-                                            onOpenConversation:
-                                                onOpenConversation,
-                                          )
-                                        : _ToolPage(
-                                            tool: row,
-                                            assignments: objects(
-                                              object(data)['assignments'],
-                                            ),
-                                            onChanged: reload,
-                                          ),
+                                    builder: (_) => _ToolPage(
+                                      tool: row,
+                                      assignments: objects(
+                                        object(data)['assignments'],
+                                      ),
+                                      onChanged: reload,
+                                    ),
                                   ),
                                 );
                                 if (context.mounted) await reload();

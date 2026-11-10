@@ -1,6 +1,8 @@
 /// Formatting helpers shared across features. Pure functions, unit tested.
 library;
 
+import 'workspace_time.dart';
+
 abstract final class Format {
   static String? workDuration(DateTime? started, DateTime? finished) {
     if (started == null || finished == null) return null;
@@ -26,7 +28,8 @@ abstract final class Format {
   }
 
   /// Clock time for message rows, e.g. "14:32".
-  static String clock(DateTime time) {
+  static String clock(DateTime time, {String? timeZone}) {
+    time = WorkspaceTime.local(time, timeZone);
     final String h = time.hour.toString().padLeft(2, '0');
     final String m = time.minute.toString().padLeft(2, '0');
     return '$h:$m';

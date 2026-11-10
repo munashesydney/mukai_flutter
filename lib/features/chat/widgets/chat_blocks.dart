@@ -9,6 +9,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'open_content.dart';
+import '../../../core/message_reference.dart';
+import 'reference_preview.dart';
 import 'file_preview.dart';
 import '../../../core/response_reference.dart';
 
@@ -35,6 +37,20 @@ class ChatBlockView extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (block) {
       final TextBlock b => _TextBody(text: b.text),
+      final SteeringBlock b => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'You steered this task',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+          _ReferencedBody(text: b.text),
+          for (final file in b.attachments) _LinkRow(block: file),
+        ],
+      ),
       final HeadingBlock b => _Heading(text: b.text),
       final BulletBlock b => _Bullets(items: b.items),
       final ToolBlock b => _ToolCard(block: b),
@@ -61,6 +77,7 @@ class _TextBody extends StatelessWidget {
     return MarkdownBody(
       data: text,
       selectable: true,
+      contextMenuBuilder: referenceSelectionMenu,
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
         p: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.62),
       ),
@@ -74,6 +91,23 @@ class _TextBody extends StatelessWidget {
       onTapLink: (label, href, title) {
         if (href != null) openChatContent(context, href, name: label);
       },
+    );
+  }
+}
+
+class _ReferencedBody extends StatelessWidget {
+  const _ReferencedBody({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    final message = splitMessageReference(text);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (message.reference case final reference?)
+          ReferencePreview(reference: reference),
+        if (message.text.isNotEmpty) _TextBody(text: message.text),
+      ],
     );
   }
 }

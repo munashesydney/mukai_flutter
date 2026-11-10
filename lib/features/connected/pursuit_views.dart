@@ -16,14 +16,12 @@ String _statusLabel(String value) => switch (value) {
   _ => label(value),
 };
 String _day(BuildContext context, dynamic value) {
-  final date = DateTime.tryParse(words(value))?.toLocal();
-  if (date == null) return 'Not scheduled';
+  final instant = DateTime.tryParse(words(value));
+  if (instant == null) return 'Not scheduled';
+  final zone = MukaiScope.sessionOf(context).workspace.timeZone;
+  final date = WorkspaceTime.local(instant, zone);
   final now = DateTime.now();
-  final difference = DateTime(
-    date.year,
-    date.month,
-    date.day,
-  ).difference(DateTime(now.year, now.month, now.day)).inDays;
+  final difference = WorkspaceTime.dayDifference(instant, now, zone);
   if (difference == 0) return 'Today';
   if (difference == 1) return 'Tomorrow';
   if (difference == -1) return 'Yesterday';
@@ -31,7 +29,13 @@ String _day(BuildContext context, dynamic value) {
 }
 
 String _clock(BuildContext context, dynamic value) {
-  final date = DateTime.tryParse(words(value))?.toLocal();
+  final instant = DateTime.tryParse(words(value));
+  final date = instant == null
+      ? null
+      : WorkspaceTime.local(
+          instant,
+          MukaiScope.sessionOf(context).workspace.timeZone,
+        );
   return date == null
       ? ''
       : MaterialLocalizations.of(context).formatTimeOfDay(
@@ -122,8 +126,8 @@ class _PursuitOwner extends StatelessWidget {
 }
 
 class _PursuitsScreen extends StatelessWidget {
-  const _PursuitsScreen({required this.onOpenConversation});
-  final ValueChanged<Conversation> onOpenConversation;
+  const _PursuitsScreen({required this.onOpenRun});
+  final OpenPursuitRun onOpenRun;
   @override
   Widget build(BuildContext context) {
     final session = MukaiScope.sessionOf(context);
@@ -212,7 +216,7 @@ class _PursuitsScreen extends StatelessWidget {
                             MaterialPageRoute<void>(
                               builder: (_) => _PursuitPage(
                                 id: words(pursuit['id']),
-                                onOpenConversation: onOpenConversation,
+                                onOpenRun: onOpenRun,
                               ),
                             ),
                           );
@@ -304,9 +308,9 @@ class _PursuitCard extends StatelessWidget {
 }
 
 class _PursuitPage extends StatefulWidget {
-  const _PursuitPage({required this.id, required this.onOpenConversation});
+  const _PursuitPage({required this.id, required this.onOpenRun});
   final String id;
-  final ValueChanged<Conversation> onOpenConversation;
+  final OpenPursuitRun onOpenRun;
   @override
   State<_PursuitPage> createState() => _PursuitPageState();
 }
@@ -393,16 +397,12 @@ class _PursuitPageState extends State<_PursuitPage> {
     }
   }
 
-  void _run(String id) => Navigator.push(
-    context,
-    MaterialPageRoute<void>(
-      builder: (_) => _RunPage(
-        pursuitId: widget.id,
-        runId: id,
-        onOpenConversation: widget.onOpenConversation,
-      ),
-    ),
-  );
+  void _run(String id) {
+    final onOpen = widget.onOpenRun;
+    final pursuitId = widget.id;
+    Navigator.of(context).removeRoute(ModalRoute.of(context)!);
+    onOpen(pursuitId, id);
+  }
 
   Future<void> _delete() async {
     if (!await confirmRemoval(
@@ -683,23 +683,13 @@ class _ReadingDisclosure extends StatelessWidget {
     super.key,
     required this.title,
     required this.body,
-    this.preview,
   });
   final String title, body;
-  final String? preview;
   @override
   Widget build(BuildContext context) => Column(
     children: [
       MukaiDisclosure(
         title: Text(title, style: Theme.of(context).textTheme.titleSmall),
-        preview: preview == null
-            ? null
-            : Text(
-                preview!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
         builder: (_) => Padding(
           padding: const EdgeInsets.only(bottom: 20),
           child: _ReadingText(body),
@@ -771,265 +761,137 @@ class _RunCard extends StatelessWidget {
   }
 }
 
-class _RunPage extends StatefulWidget {
-  const _RunPage({
+/// Uses the shared conversation UI with the controls and outcome of this run.
+class PursuitRunChat extends StatefulWidget {
+  const PursuitRunChat({
+    super.key,
     required this.pursuitId,
     required this.runId,
-    required this.onOpenConversation,
+    required this.joined,
+    required this.onJoin,
+    required this.onMenu,
+    required this.onHistory,
+    required this.onOpenSource,
   });
+
   final String pursuitId, runId;
-  final ValueChanged<Conversation> onOpenConversation;
+  final bool joined;
+  final VoidCallback onJoin, onMenu, onHistory;
+  final Future<void> Function(NotificationSource) onOpenSource;
+
   @override
-  State<_RunPage> createState() => _RunPageState();
+  State<PursuitRunChat> createState() => _PursuitRunChatState();
 }
 
-class _RunPageState extends State<_RunPage> {
-  int _tab = 0;
+class _PursuitRunChatState extends State<PursuitRunChat> {
+  bool _retrying = false;
+  String get _path => '/pursuits/${encoded(widget.pursuitId)}';
+
+  Future<void> _retry(Future<void> Function() reload) async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
+    try {
+      await connectedRequest(
+        context,
+        '$_path/retry',
+        method: 'POST',
+        body: {'runId': widget.runId},
+      );
+      if (mounted) await reload();
+    } catch (error) {
+      if (mounted) connectionNotice(context, error);
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Pursuit run')),
-    body: ConnectedAsync(
-      refreshInterval: const Duration(seconds: 5),
-      load: () async {
-        final run = object(
-          await connectedRequest(
-            context,
-            '/pursuits/${encoded(widget.pursuitId)}/run?runId=${encoded(widget.runId)}',
-          ),
-        );
-        if (!context.mounted) return null;
-        final messages = words(run['conversationId']).isEmpty
-            ? <JsonMap>[]
-            : objects(
-                await connectedRequest(
-                  context,
-                  '/conversations/${encoded(run['conversationId'])}/messages',
-                ),
-              );
-        return {'run': run, 'messages': messages};
-      },
-      builder: (context, data, reload) {
-        final run = object(object(data)['run']),
-            snapshot = object(run['snapshot']);
-        final status = words(run['status']),
-            conversationId = words(run['conversationId']);
-        final session = MukaiScope.sessionOf(context);
-        final colors = MukaiColors.of(context),
-            text = Theme.of(context).textTheme;
-        final messages = objects(object(data)['messages'])
-            .map((m) => session.remote!.messageFromJson(m, conversationId))
-            .toList();
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 8, 22, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: _PursuitOwner(snapshot['ownerBotId'])),
-                      _PursuitStatus(status),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    _when(context, run['startedAt']),
-                    style: text.headlineSmall,
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    run['trigger'] == 'manual'
-                        ? 'Started by you'
-                        : 'Started on schedule',
-                    style: text.bodySmall,
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (conversationId.isNotEmpty)
-                        ConnectedAction(
-                          label: 'Open conversation',
-                          icon: Icons.arrow_outward_rounded,
-                          tonal: true,
-                          action: () async {
-                            final conversation = Conversation(
-                              id: conversationId,
-                              title: words(snapshot['name'], 'Pursuit run'),
-                              botId: words(snapshot['ownerBotId']),
-                              updatedAt:
-                                  DateTime.tryParse(words(run['startedAt'])) ??
-                                  DateTime.now(),
-                              kind: 'pursuit_run',
-                            );
-                            Navigator.of(
-                              context,
-                            ).popUntil((route) => route.isFirst);
-                            widget.onOpenConversation(conversation);
-                          },
-                        ),
-                      if (status == 'running')
-                        ConnectedAction(
-                          label: 'Stop run',
-                          tonal: true,
-                          action: () async {
-                            await connectedRequest(
-                              context,
-                              '/conversations/${encoded(conversationId)}/stop',
-                              method: 'POST',
-                            );
-                            if (context.mounted) await reload();
-                          },
-                        ),
-                      if (['failed', 'stopped', 'interrupted'].contains(status))
-                        ConnectedAction(
-                          label: 'Retry run',
-                          action: () async {
-                            final retried = object(
-                              await connectedRequest(
-                                context,
-                                '/pursuits/${encoded(widget.pursuitId)}/retry',
-                                method: 'POST',
-                                body: {'runId': widget.runId},
-                              ),
-                            );
-                            if (!context.mounted) return;
-                            await Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (_) => _RunPage(
-                                  pursuitId: widget.pursuitId,
-                                  runId: words(retried['id']),
-                                  onOpenConversation: widget.onOpenConversation,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      color: colors.cardMuted,
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Row(
-                      children: [
-                        for (final (index, name) in [
-                          (0, 'Conversation'),
-                          (1, 'Summary'),
-                        ])
-                          Expanded(
-                            child: PressableScale(
-                              onTap: () => setState(() => _tab = index),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 9,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _tab == index
-                                      ? colors.card
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  name,
-                                  textAlign: TextAlign.center,
-                                  style: text.labelMedium?.copyWith(
-                                    color: _tab == index
-                                        ? colors.ink
-                                        : colors.textMuted,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: _tab == 1
-                  ? SingleChildScrollView(
-                      key: const PageStorageKey('run-summary'),
-                      padding: const EdgeInsets.fromLTRB(22, 8, 22, 36),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (run['error'] != null)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 16),
-                              child: Text(
-                                words(run['error']),
-                                style: text.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
-                            ),
-                          _ReadingText(
-                            words(run['summary']).isEmpty
-                                ? 'A summary will appear when this run finishes.'
-                                : words(run['summary']),
-                          ),
-                        ],
-                      ),
-                    )
-                  : messages.isEmpty
-                  ? const ConnectedEmpty(
-                      title: 'The conversation starts here.',
-                      body:
-                          'Messages from this run will appear as your companion works.',
-                      icon: Icons.forum_outlined,
-                    )
-                  : ListView.builder(
-                      key: const PageStorageKey('run-messages'),
-                      padding: const EdgeInsets.fromLTRB(22, 8, 22, 36),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) =>
-                          _RunMessage(message: messages[index]),
-                    ),
-            ),
-          ],
-        );
-      },
-    ),
+  Widget build(BuildContext context) => ConnectedAsync(
+    refreshInterval: const Duration(seconds: 5),
+    load: () =>
+        connectedRequest(context, '$_path/run?runId=${encoded(widget.runId)}'),
+    builder: (context, data, reload) {
+      final run = object(data), snapshot = object(run['snapshot']);
+      final conversationId = words(run['conversationId']);
+      final status = words(run['status']);
+      final session = MukaiScope.sessionOf(context);
+      final bot = session.remote!.botById(words(snapshot['ownerBotId']));
+      if (conversationId.isEmpty) {
+        return const Center(child: Text('This run has no conversation.'));
+      }
+      return ChatScreen(
+        key: ValueKey(conversationId),
+        bot: bot,
+        conversationId: conversationId,
+        kind: 'pursuit_run',
+        title: words(snapshot['name'], 'Pursuit run'),
+        joined: widget.joined,
+        onJoin: widget.onJoin,
+        onMenu: widget.onMenu,
+        onOpenSource: widget.onOpenSource,
+        run: ChatRun(
+          id: widget.runId,
+          status: status,
+          onHistory: widget.onHistory,
+          onRetry:
+              bot.id.isNotEmpty &&
+                  !_retrying &&
+                  ['failed', 'stopped', 'interrupted'].contains(status)
+              ? () => _retry(reload)
+              : null,
+          outcome: _RunOutcome(run: run, snapshot: snapshot),
+        ),
+      );
+    },
   );
 }
 
-/// Historical run messages never act on the shell's currently selected chat.
-class _RunMessage extends StatelessWidget {
-  const _RunMessage({required this.message});
-  final ChatMessage message;
+class _RunOutcome extends StatelessWidget {
+  const _RunOutcome({required this.run, required this.snapshot});
+  final JsonMap run, snapshot;
+
   @override
   Widget build(BuildContext context) {
-    final prompt = message.blocks
-        .whereType<TextBlock>()
-        .map((b) => b.text)
-        .join('\n\n');
-    if (message.fromUser && prompt.length > 600) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 22),
-        child: ChatContentScope(
-          conversationId: message.conversationId ?? 'bot-${message.botId}',
-          messageId: message.id,
-          child: _ReadingDisclosure(
-            key: ValueKey('run-instructions-${message.id}'),
-            title: 'Run instructions',
-            body: prompt,
-            preview: _preview(prompt, 160),
-          ),
+    final text = Theme.of(context).textTheme;
+    final summary = words(run['summary']);
+    final error = words(run['error']);
+    final objective = words(snapshot['objective']);
+    final criteria = words(snapshot['successCriteria']);
+    return ListView(
+      key: const PageStorageKey('run-outcome'),
+      padding: const EdgeInsets.fromLTRB(22, 8, 22, 36),
+      children: [
+        Text('Run outcome', style: text.titleLarge),
+        const SizedBox(height: 8),
+        Text(
+          '${_statusLabel(words(run['status']))} · '
+          '${run['trigger'] == 'manual' ? 'Started by you' : 'Started on schedule'} · '
+          '${_when(context, run['startedAt'])}',
+          style: text.bodySmall,
         ),
-      );
-    }
-    return MessageView(
-      message: message,
-      bots: MukaiScope.sessionOf(context).bots,
+        const SizedBox(height: 16),
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              error,
+              style: text.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        _ReadingText(
+          summary.isEmpty
+              ? 'A summary will appear when this run finishes.'
+              : summary,
+        ),
+        if (objective.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          _ReadingDisclosure(title: 'Full objective', body: objective),
+        ],
+        if (criteria.isNotEmpty)
+          _ReadingDisclosure(title: 'Success criteria', body: criteria),
+      ],
     );
   }
 }

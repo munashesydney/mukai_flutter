@@ -77,6 +77,8 @@ live Cloudflare application is needed to verify its policy and browser callback.
   settings. Existing desktop-connected providers remain available for chat;
   provider OAuth sign-in remains a desktop/browser flow.
 
+Workspace dates use the timezone saved in Mukai, including chat clocks, pursuit schedules/deadlines, run history, and Today/Tomorrow labels. **Settings → Timezone** offers city/identifier search, a local-time preview, and saves to the same workspace preference as desktop. Changes made elsewhere refresh without clearing chats or drafts. Travelling with the phone does not overwrite the selection. The backend remains responsible for the AI clock; mobile sends no competing timezone prompt. Timestamps remain UTC instants, while elapsed durations and countdowns are unchanged. Older servers that omit `timeZone` retain the previous device-time display until a workspace timezone is available. The pinned `timezone` package bundles IANA rules; update its data alongside the desktop timezone dependency when timezone rules change.
+
 Foreground refresh reconciles changes made elsewhere and recovers saved chat
 state after app resume. Switching conversations cancels the local stream without
 stopping server work. Drafts are scoped to conversations, and uncertain sends
@@ -102,7 +104,7 @@ python3 scripts/test_live_backend.py -d <booted-iphone-simulator-id>
 
 The native test starts an isolated real Mukai backend with a deterministic local
 OpenAI-compatible provider, three bots, a pursuit, a Workpad and a space. It checks
-Keychain persistence and restore, username/password login, help/appearance sheet dismissal, streaming chat, approval decisions, collapsed work history,
+Keychain persistence and restore, username/password login, help/appearance sheet dismissal, workspace timezone saving and the resulting AI provider clock, streaming chat, approval decisions, collapsed work history,
 authenticated image/file previews, Updates, pursuit pause and space messaging. It cleans up its server and temporary data afterward. Install
 `../mukai`'s Node dependencies first; no external AI provider or user workspace is
 used. Do not run `integration_test/live_backend_test.dart` against real user data.

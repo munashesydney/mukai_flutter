@@ -27,10 +27,15 @@ class _Server {
   String objective = 'Ship a useful idea';
   final runs = <Map<String, dynamic>>[];
   final runQueries = <String?>[];
+  final runPageQueries = <Map<String, String>>[];
+  final runFollowups = <Map<String, dynamic>>[];
+  Map<String, dynamic>? updateSource;
+  String continueTarget = 'update-chat';
   String approvalMode = 'ask-for-approval';
   final providers = <Map<String, dynamic>>[];
   final assignments = <Map<String, dynamic>>[];
   final notifications = <Map<String, dynamic>>[];
+  final chats = <Map<String, dynamic>>[];
   final notificationOffsets = <int>[];
   final profile = <String, dynamic>{
     'mode': 'icon',
@@ -38,6 +43,7 @@ class _Server {
     'icon': 'user',
     'background': '#b28a66',
   };
+  String? timeZone;
   Map<String, dynamic> get pursuit => <String, dynamic>{
     'id': 'p1',
     'workspaceId': 'w',
@@ -77,8 +83,17 @@ class _Server {
               'name': 'Studio',
               'computer': 'local',
               'folder': '/workspace',
+              if (timeZone != null) 'timeZone': timeZone,
             },
           ];
+        case '/api/workspaces/w/timezone':
+          timeZone = body['timeZone'] as String;
+          result = {
+            'id': 'w',
+            'name': 'Studio',
+            'computer': 'local',
+            'timeZone': timeZone,
+          };
         case '/api/bots':
           result = <dynamic>[
             {
@@ -102,7 +117,12 @@ class _Server {
                   'ownerBotId': null,
                   'updatedAt': '2026-11-03T00:00:00Z',
                 }
-              : <dynamic>[];
+              : chats
+                    .where(
+                      (chat) =>
+                          chat['kind'] == request.uri.queryParameters['kind'],
+                    )
+                    .toList();
         case '/api/notifications':
           final offset = int.parse(
             request.uri.queryParameters['offset'] ?? '0',
@@ -139,7 +159,18 @@ class _Server {
         case '/api/pursuits':
           result = <dynamic>[pursuit];
         case '/api/pursuits/p1':
-          result = <String, dynamic>{'pursuit': pursuit, 'runs': runs};
+          runPageQueries.add(request.uri.queryParameters);
+          final offset = int.parse(
+            request.uri.queryParameters['runOffset'] ?? '0',
+          );
+          final limit = int.parse(
+            request.uri.queryParameters['runLimit'] ?? '100',
+          );
+          result = <String, dynamic>{
+            'pursuit': pursuit,
+            'runs': runs.skip(offset).take(limit).toList(),
+            'runCount': runs.length,
+          };
         case '/api/pursuits/p1/run':
           runQueries.add(request.uri.queryParameters['runId']);
           result = runs.firstWhere(
@@ -154,15 +185,92 @@ class _Server {
             'name': 'Background pursuit',
             'botIds': ['scout'],
             'updatedAt': '2026-11-03T00:00:00Z',
+            if (runs.isNotEmpty) ...{
+              'pursuitId': 'p1',
+              'runId': runs.first['id'],
+            },
           };
         case '/api/conversations/run-chat/messages':
           result = <dynamic>[
+            if (runs.isNotEmpty)
+              {
+                'id': 'run-kickoff',
+                'role': 'user',
+                'requestId': runs.first['id'],
+                'content': 'Autonomous kickoff text',
+                'createdAt': '2026-11-03T10:00:00Z',
+              },
             {
               'id': 'run-message',
               'role': 'assistant',
               'botId': 'scout',
               'content': 'Run conversation landed.',
               'createdAt': '2026-11-03T10:00:00Z',
+            },
+          ];
+        case '/api/conversations/run-chat/followups':
+          if (request.method == 'POST') {
+            runFollowups.add({
+              ...Map<String, dynamic>.from(body as Map),
+              'state': 'queued',
+            });
+          }
+          result = runFollowups;
+        case '/api/conversations/run-chat/chat':
+          final user = {
+            'id': 'run-followup-user',
+            'requestId': body['requestId'],
+            'role': 'user',
+            'content': body['text'],
+            'createdAt': '2026-11-03T10:02:00Z',
+          };
+          final assistant = {
+            'id': 'run-followup-reply',
+            'requestId': body['requestId'],
+            'role': 'assistant',
+            'botId': 'scout',
+            'content': 'A reply in the original run.',
+            'status': 'complete',
+            'createdAt': '2026-11-03T10:02:01Z',
+          };
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+          );
+          request.response.write(
+            'data: ${jsonEncode({'type': 'start', 'user': user, 'assistant': assistant})}\n\n',
+          );
+          await request.response.close();
+          return;
+        case '/api/conversations/update-chat/messages':
+          result = [
+            {
+              'id': 'seeded-update',
+              'role': 'assistant',
+              'botId': 'scout',
+              'content': 'The review is ready.',
+              'status': 'complete',
+              'createdAt': '2026-11-03T10:01:00Z',
+              'notificationSource': updateSource,
+            },
+          ];
+        case '/api/conversations/original-chat':
+          result = {
+            'id': 'original-chat',
+            'workspaceId': 'w',
+            'ownerBotId': 'scout',
+            'botIds': ['scout'],
+            'kind': 'private',
+            'name': 'Original review chat',
+          };
+        case '/api/conversations/original-chat/messages':
+          result = [
+            {
+              'id': 'original-reply',
+              'role': 'assistant',
+              'botId': 'scout',
+              'content': 'The original review discussion.',
+              'status': 'complete',
             },
           ];
         case '/api/pursuits/p1/status':
@@ -208,7 +316,7 @@ class _Server {
             }
             result = action == 'continue'
                 ? {
-                    'id': 'update-chat',
+                    'id': continueTarget,
                     'kind': 'private',
                     'ownerBotId': 'scout',
                     'name': 'Follow up',
@@ -286,11 +394,130 @@ Future<_Server> _open(
 
 void main() {
   testWidgets(
+    'pursuit dropdowns use prefetched run pages and fetch more on request',
+    (tester) async {
+      final server = await _open(
+        tester,
+        const HomeShell(),
+        configure: (server) {
+          for (var i = 0; i < 15; i++) {
+            server.runs.add({
+              'id': 'history-run-$i',
+              'status': 'complete',
+              'conversationId': 'history-chat-$i',
+            });
+          }
+        },
+      );
+      expect(server.runPageQueries, contains(containsPair('runLimit', '6')));
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      await tester.tap(find.text('Pursuits').hitTestable());
+      await _frames(tester);
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      final before = server.runPageQueries.length;
+      await tester.tap(find.text('Launch a small thing').hitTestable());
+      await tester.pump();
+      expect(find.text('Loading runs…'), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(
+        find.byKey(const ValueKey('sidebar-run-history-run-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('sidebar-run-history-run-6')),
+        findsNothing,
+      );
+      expect(server.runPageQueries.length, before);
+      await tester.ensureVisible(find.text('Load more runs'));
+      await tester.pump();
+      await tester.tap(find.text('Load more runs'));
+      await _frames(tester);
+      expect(
+        server.runPageQueries,
+        contains(
+          allOf(containsPair('runLimit', '6'), containsPair('runOffset', '6')),
+        ),
+      );
+      expect(
+        find.byKey(const ValueKey('sidebar-run-history-run-6')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('sidebar-run-history-run-12')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      await server.cleanup!();
+    },
+  );
+
+  testWidgets('sidebar conversation history expands twelve chats at a time', (
+    tester,
+  ) async {
+    final server = await _open(
+      tester,
+      const HomeShell(),
+      configure: (server) {
+        for (var i = 0; i < 25; i++) {
+          server.chats.add({
+            'id': 'chat-$i',
+            'name': 'Chat $i',
+            'ownerBotId': 'scout',
+            'kind': 'private',
+            'botIds': ['scout'],
+            'updatedAt': DateTime.utc(
+              2026,
+              11,
+              6,
+            ).subtract(Duration(minutes: i)).toIso8601String(),
+          });
+        }
+      },
+    );
+    await tester.tap(find.byTooltip('Open sidebar'));
+    await _frames(tester);
+    expect(
+      find.byKey(const ValueKey('sidebar-conversation-chat-12')),
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      find.text('Load more conversations'),
+      400,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const PageStorageKey('sidebar-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(find.text('Load more conversations'));
+    await _frames(tester);
+    expect(
+      find.byKey(const ValueKey('sidebar-conversation-chat-12')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('sidebar-conversation-chat-24')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+    await server.cleanup!();
+  });
+
+  testWidgets(
     'push tap opens a pursuit conversation absent from recent chat lists',
     (tester) async {
       final server = await _open(
         tester,
         const HomeShell(pushTarget: PushTarget('w', 'run-chat', 'scout')),
+        configure: (server) => server.runs.add({
+          'id': 'push-run',
+          'conversationId': 'run-chat',
+          'status': 'complete',
+          'snapshot': server.pursuit,
+        }),
       );
       await _frames(tester);
       expect(
@@ -302,6 +529,8 @@ void main() {
         tester.widget<ChatScreen>(find.byType(ChatScreen)).conversationId,
         'run-chat',
       );
+      expect(server.runQueries, contains('push-run'));
+      expect(find.text('Jump in the chat'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await server.cleanup!();
     },
@@ -378,7 +607,11 @@ void main() {
     (tester) async {
       final server = await _open(
         tester,
-        ConnectedFeaturesScreen(kind: 'pursuits', onOpenConversation: (_) {}),
+        ConnectedFeaturesScreen(
+          kind: 'pursuits',
+          onOpenConversation: (_) {},
+          onOpenRun: (_, _) {},
+        ),
       );
       expect(find.text('Launch a small thing'), findsOneWidget);
       await tester.tap(find.text('Launch a small thing'));
@@ -418,7 +651,6 @@ void main() {
   testWidgets(
     'long pursuits and runs remain compact; a run opens its messages and full summary',
     (tester) async {
-      Conversation? opened;
       const runId = 'a8d9c85e-9c9f-48be-a06a-8487c4648225';
       final huge = List.filled(
         180,
@@ -426,15 +658,12 @@ void main() {
       ).join(' ');
       final server = await _open(
         tester,
-        ConnectedFeaturesScreen(
-          kind: 'pursuits',
-          onOpenConversation: (value) => opened = value,
-        ),
+        const HomeShell(),
         configure: (server) {
           server.objective = huge;
           server.runs.add({
             'id': runId,
-            'status': 'complete',
+            'status': 'running',
             'trigger': 'schedule',
             'summary': huge,
             'conversationId': 'run-chat',
@@ -443,6 +672,10 @@ void main() {
           });
         },
       );
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      await tester.tap(find.text('Pursuits').hitTestable());
+      await _frames(tester);
       final listCard = find.ancestor(
         of: find.text('Launch a small thing'),
         matching: find.byType(MukaiCard),
@@ -471,24 +704,94 @@ void main() {
       await tester.pump();
       expect(tester.getSize(run).height, lessThan(220));
       await tester.tap(run);
+      await tester.pump();
+      final entering = tester.getTopLeft(find.byType(PursuitRunChat));
+      expect(entering.dy, greaterThan(500));
+      expect(entering.dx.abs(), lessThan(1));
+      await tester.pump(const Duration(milliseconds: 170));
+      final halfway = tester.getTopLeft(find.byType(PursuitRunChat));
+      expect(halfway.dy, lessThan(entering.dy));
+      expect(halfway.dy, greaterThan(0));
       await _frames(tester);
       expect(server.runQueries, contains(runId));
-      expect(find.text('Pursuit run'), findsOneWidget);
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(find.text('Autonomous kickoff text'), findsNothing);
       expect(
         find.textContaining('Run conversation landed.', findRichText: true),
         findsWidgets,
       );
-      expect(find.text('Open conversation').hitTestable(), findsOneWidget);
-      await tester.tap(find.text('Summary'));
+      expect(find.byType(TextField), findsNothing);
+      await tester.tap(find.text('Run outcome'));
       await _frames(tester);
       expect(
         find.textContaining('A detailed report', findRichText: true),
         findsWidgets,
       );
-      await tester.tap(find.text('Open conversation'));
+      await tester.tap(find.text('Artifacts'));
       await _frames(tester);
-      expect(opened?.id, 'run-chat');
-      expect(opened?.kind, 'pursuit_run');
+      expect(find.text('No artifacts in this run yet.'), findsOneWidget);
+      await tester.tap(find.text('Chat'));
+      await tester.pump();
+      await tester.tap(find.text('Jump in the chat'));
+      await _frames(tester);
+      await tester.enterText(find.byType(TextField), 'Which checks passed?');
+      await tester.pump();
+      await tester.tap(find.byTooltip('Queue follow-up'));
+      await _frames(tester);
+      expect(server.runFollowups.single['text'], 'Which checks passed?');
+      expect(
+        server.requests.where(
+          (r) => r.path == '/api/conversations/run-chat/chat',
+        ),
+        isEmpty,
+      );
+      server.runs.first['status'] = 'complete';
+      server.runFollowups.clear();
+      await tester.pump(const Duration(seconds: 6));
+      await _frames(tester);
+      await tester.enterText(
+        find.byType(TextField),
+        'Tell me more about the run.',
+      );
+      await tester.pump();
+      await tester.tap(find.byTooltip('Send message'));
+      await _frames(tester);
+      expect(
+        server.requests
+            .where((r) => r.path == '/api/conversations/run-chat/chat')
+            .single
+            .body['text'],
+        'Tell me more about the run.',
+      );
+      await tester.tap(find.byTooltip('Open sidebar'));
+      await _frames(tester);
+      final sidebarRun = find.byKey(const ValueKey('sidebar-run-$runId'));
+      expect(tester.widget<ListTile>(sidebarRun).selected, isTrue);
+      await tester.tap(sidebarRun);
+      await _frames(tester);
+      expect(
+        tester.widget<ChatScreen>(find.byType(ChatScreen)).conversationId,
+        'run-chat',
+      );
+      expect(find.byTooltip('All runs'), findsNothing);
+      final close = find.byTooltip('Close run');
+      expect(
+        find.descendant(
+          of: close,
+          matching: find.byIcon(Icons.arrow_downward_rounded),
+        ),
+        findsOneWidget,
+      );
+      final resting = tester.getTopLeft(find.byType(PursuitRunChat));
+      await tester.tap(close);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 170));
+      final leaving = tester.getTopLeft(find.byType(PursuitRunChat));
+      expect(leaving.dy, greaterThan(resting.dy));
+      expect(leaving.dx, closeTo(resting.dx, 1));
+      await _frames(tester);
+      expect(find.byType(PursuitRunChat), findsNothing);
+      expect(find.text('Workpad').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
       await server.cleanup!();
     },
@@ -539,6 +842,96 @@ void main() {
       await server.cleanup!();
     },
   );
+
+  for (final fromRun in [true, false]) {
+    testWidgets(
+      'a continued update links back to its original ${fromRun ? 'run' : 'chat'}',
+      (tester) async {
+        final server = await _open(
+          tester,
+          const HomeShell(),
+          configure: (server) {
+            if (fromRun) {
+              server.runs.add({
+                'id': 'review-run',
+                'status': 'complete',
+                'conversationId': 'run-chat',
+                'snapshot': server.pursuit,
+              });
+            }
+            if (!fromRun) server.continueTarget = 'original-chat';
+            server.updateSource = {
+              'conversationId': fromRun ? 'run-chat' : 'original-chat',
+              'kind': fromRun ? 'pursuit_run' : 'private',
+              'name': 'Original review',
+              if (fromRun) ...{'pursuitId': 'p1', 'runId': 'review-run'},
+            };
+            server.notifications.add({
+              'id': 'review-update',
+              'botId': 'scout',
+              'botName': 'Scout',
+              'title': 'Review update',
+              'message': 'The review is ready.',
+              'createdAt': '2026-11-03T10:01:00Z',
+            });
+          },
+        );
+        await tester.tap(find.byTooltip('Open sidebar'));
+        await _frames(tester);
+        await tester.tap(find.text('Updates').hitTestable());
+        await _frames(tester);
+        await tester.tap(find.text('Review update'));
+        await _frames(tester);
+        await tester.tap(find.text('Continue in chat'));
+        await _frames(tester);
+        expect(
+          tester.widget<ChatScreen>(find.byType(ChatScreen)).conversationId,
+          fromRun ? 'update-chat' : 'original-chat',
+        );
+        expect(
+          find.textContaining('The review is ready.', findRichText: true),
+          findsWidgets,
+        );
+        expect(find.text('Selection'), findsOneWidget);
+        expect(find.byTooltip('Remove reference'), findsOneWidget);
+        if (!fromRun) {
+          expect(
+            find.textContaining(
+              'The original review discussion.',
+              findRichText: true,
+            ),
+            findsWidgets,
+          );
+          await tester.tap(find.byTooltip('Remove reference'));
+          await _frames(tester);
+          expect(find.text('Selection'), findsNothing);
+          await server.cleanup!();
+          return;
+        }
+        await tester.tap(
+          find.text(
+            fromRun ? 'Open original run' : 'Open original conversation',
+          ),
+        );
+        await _frames(tester);
+        expect(
+          tester.widget<ChatScreen>(find.byType(ChatScreen)).conversationId,
+          fromRun ? 'run-chat' : 'original-chat',
+        );
+        expect(
+          find.textContaining(
+            fromRun
+                ? 'Run conversation landed.'
+                : 'The original review discussion.',
+            findRichText: true,
+          ),
+          findsWidgets,
+        );
+        expect(tester.takeException(), isNull);
+        await server.cleanup!();
+      },
+    );
+  }
 
   testWidgets(
     'updates paginate, expand, mark read, continue and confirm bulk dismissal',
@@ -623,6 +1016,8 @@ void main() {
       350,
       scrollable: find.byType(Scrollable).first,
     );
+    await _frames(tester);
+    await tester.ensureVisible(find.text('Disconnect this iPhone'));
     await tester.tap(find.text('Disconnect this iPhone'));
     await _frames(tester);
     await tester.tap(find.text('Cancel'));
@@ -744,6 +1139,42 @@ void main() {
     expect(tester.takeException(), isNull);
     await server.cleanup!();
   });
+
+  testWidgets(
+    'timezone settings search, preview and save the shared workspace value',
+    (tester) async {
+      final server = await _open(
+        tester,
+        ConnectedSettingsScreen(onDisconnect: () {}),
+        configure: (server) => server.timeZone = 'America/Vancouver',
+      );
+      await tester.ensureVisible(find.text('Timezone'));
+      await tester.tap(find.text('Timezone'));
+      await _frames(tester);
+      expect(find.byKey(const ValueKey('timezone-preview')), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Search timezones'),
+        'Kathmandu',
+      );
+      await _frames(tester);
+      await tester.tap(find.text('Asia/Kathmandu'));
+      await _frames(tester);
+      expect(find.textContaining('UTC+05:45'), findsOneWidget);
+      await tester.tap(find.text('Save timezone'));
+      await _frames(tester);
+      expect(server.timeZone, 'Asia/Kathmandu');
+      expect(
+        server.requests
+            .where((request) => request.path == '/api/workspaces/w/timezone')
+            .single
+            .body,
+        {'timeZone': 'Asia/Kathmandu'},
+      );
+      expect(find.text('Asia/Kathmandu'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await server.cleanup!();
+    },
+  );
 
   testWidgets('tool assignment writes actual bot and tool IDs', (tester) async {
     final server = await _open(

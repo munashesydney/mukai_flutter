@@ -8,6 +8,7 @@ import 'package:mukai_flutter/data/api/api_client.dart';
 import 'package:mukai_flutter/data/api/api_repository.dart';
 import 'package:mukai_flutter/domain/models.dart';
 import 'package:mukai_flutter/state/session_controller.dart';
+import 'package:mukai_flutter/core/message_reference.dart';
 
 Map<String, dynamic> _message(
   String id,
@@ -52,6 +53,8 @@ class _MukaiServer {
   };
   final Map<String, List<Map<String, dynamic>>> followupQueues = {};
   bool twoWorkspaces = false;
+  String? workspaceOneTimeZone;
+  Completer<void>? workspaceReadGate;
   Completer<void>? workspaceOneBotsGate;
   Completer<void>? followupPostGate;
   final List<String> handlerFailures = [];
@@ -82,6 +85,7 @@ class _MukaiServer {
   }
 
   Future<void> close() async {
+    if (workspaceReadGate?.isCompleted == false) workspaceReadGate!.complete();
     if (workspaceOneBotsGate?.isCompleted == false) {
       workspaceOneBotsGate!.complete();
     }
@@ -156,13 +160,14 @@ class _MukaiServer {
       return;
     }
     if (path == '/workspaces') {
-      return _json(request, [
+      final snapshot = [
         {
           'id': 'workspace-one',
           'name': 'Live workspace',
           'folder': '/project',
           'computer': 'local',
           'createdAt': '2026-11-03T00:00:00Z',
+          if (workspaceOneTimeZone != null) 'timeZone': workspaceOneTimeZone,
         },
         if (twoWorkspaces)
           {
@@ -171,8 +176,21 @@ class _MukaiServer {
             'folder': '/other',
             'computer': 'local',
             'createdAt': '2026-11-03T00:00:00Z',
+            'timeZone': 'UTC',
           },
-      ]);
+      ];
+      if (workspaceReadGate != null) await workspaceReadGate!.future;
+      return _json(request, snapshot);
+    }
+    if (path == '/workspaces/workspace-one/timezone' &&
+        request.method == 'PUT') {
+      workspaceOneTimeZone = body['timeZone'] as String;
+      return _json(request, {
+        'id': 'workspace-one',
+        'name': 'Live workspace',
+        'computer': 'local',
+        'timeZone': workspaceOneTimeZone,
+      });
     }
     if (path == '/bots') {
       final requestedWorkspace = request.uri.queryParameters['workspaceId'];
@@ -278,6 +296,11 @@ class _MukaiServer {
           if (body['action'] == 'edit') {
             for (final item in followups) {
               if (item['id'] == body['id']) item['text'] = body['text'];
+            }
+          }
+          if (body['action'] == 'steer') {
+            for (final item in followups) {
+              if (item['id'] == body['id']) item['state'] = 'steering';
             }
           }
         }
@@ -458,6 +481,64 @@ void main() {
   });
 
   test(
+    'workspace zones refresh during a chat while timestamps and drafts remain intact',
+    () async {
+      server.workspaceOneTimeZone = 'America/Vancouver';
+      server.twoWorkspaces = true;
+      final repo = ApiRepository(client);
+      await repo.refresh();
+      final session = SessionController(repo);
+      addTearDown(session.dispose);
+      await session.openBot('bot-one', conversationId: 'history-chat');
+      session.drafts[session.draftKey] = 'An unsent draft';
+      final instant = session.thread.single.at;
+      expect(instant.isUtc, isTrue);
+      expect(session.workspace.timeZone, 'America/Vancouver');
+      server.workspaceOneTimeZone = 'Asia/Kathmandu';
+      await session.refreshLive();
+      expect(session.workspace.timeZone, 'Asia/Kathmandu');
+      expect(session.thread.single.at, instant);
+      expect(session.drafts[session.draftKey], 'An unsent draft');
+      await session.selectWorkspace('workspace-two');
+      expect(session.workspace.timeZone, 'UTC');
+      await session.setWorkspaceTimeZone('workspace-one', 'Europe/London');
+      expect(session.workspace.id, 'workspace-two');
+      expect(session.workspace.timeZone, 'UTC');
+      expect(
+        session.workspaces.firstWhere((w) => w.id == 'workspace-one').timeZone,
+        'Europe/London',
+      );
+      expect(server.requests.last.body, {'timeZone': 'Europe/London'});
+    },
+  );
+
+  test('a delayed settings read cannot overwrite a saved timezone', () async {
+    server.workspaceOneTimeZone = 'America/Vancouver';
+    final repo = ApiRepository(client);
+    await repo.refresh();
+    final reads = server.requests
+        .where((r) => r.uri.path == '/api/workspaces')
+        .length;
+    server.workspaceReadGate = Completer<void>();
+    final pending = repo.refreshWorkspaceSettings();
+    await _until(
+      () =>
+          server.requests.where((r) => r.uri.path == '/api/workspaces').length >
+          reads,
+    );
+    await repo.saveWorkspaceTimeZone('workspace-one', 'Asia/Kathmandu');
+    server.workspaceReadGate!.complete();
+    await pending;
+    expect(repo.workspace.timeZone, 'Asia/Kathmandu');
+    final before = server.requests.length;
+    await expectLater(
+      repo.saveWorkspaceTimeZone('workspace-one', 'PST'),
+      throwsA(isA<ApiException>()),
+    );
+    expect(server.requests.length, before);
+  });
+
+  test(
     'normalizes host, API prefix and reverse-proxy paths without duplicating api',
     () {
       expect(
@@ -635,8 +716,17 @@ void main() {
         );
       }
       expect(session.responding, isTrue);
+      const reference = MessageReference(
+        label: 'Review',
+        text: 'Quoted notes\n\nKeep their context.',
+      );
+      session.setReference(reference);
       await session.send('Also check the notes');
-      expect(session.followups.single['text'], 'Also check the notes');
+      expect(
+        session.followups.single['text'],
+        reference.format('Also check the notes'),
+      );
+      expect(session.reference, isNull);
       final queue = server.requests.firstWhere(
         (r) => r.method == 'POST' && r.uri.path.endsWith('/followups'),
       );
@@ -644,9 +734,30 @@ void main() {
       await session.updateFollowup(
         session.followups.single['id'] as String,
         'edit',
-        text: 'Updated notes',
+        text: reference.format('Updated notes'),
       );
-      expect(session.followups.single['text'], 'Updated notes');
+      expect(
+        session.followups.single['text'],
+        reference.format('Updated notes'),
+      );
+      final activeRequest = session.activeReply!.requestId;
+      expect(
+        await session.updateFollowup(
+          session.followups.single['id'] as String,
+          'steer',
+        ),
+        isTrue,
+      );
+      expect(session.followups.single['state'], 'steering');
+      final steer = server.requests.lastWhere(
+        (r) => r.body is Map && r.body['action'] == 'steer',
+      );
+      expect(steer.body['expectedRequestId'], activeRequest);
+      await session.updateFollowup(
+        session.followups.single['id'] as String,
+        'delete',
+      );
+      expect(session.followups, isEmpty);
       session.stop();
       await send;
       await _until(() => !session.responding);

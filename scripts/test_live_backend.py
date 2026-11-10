@@ -19,6 +19,8 @@ with tempfile.TemporaryDirectory(prefix='mukai-native-test-') as directory:
     environment = dict(os.environ, MUKAI_FIXTURE_METADATA=str(metadata))
     with (Path(directory) / 'backend.log').open('w+') as log:
         fixture = subprocess.Popen([str(runner), str(project / 'scripts/live_backend_fixture.ts')], cwd=backend, env=environment, stdout=log, stderr=subprocess.STDOUT)
+        ran_flutter = False
+        restore_result = 0
         try:
             for _ in range(400):
                 if metadata.exists():
@@ -31,6 +33,7 @@ with tempfile.TemporaryDirectory(prefix='mukai-native-test-') as directory:
                 sys.exit('The isolated backend did not become ready.')
             connection = json.loads(metadata.read_text())
             command = [str(project / 'scripts/ios.sh'), 'test', 'integration_test/live_backend_test.dart', '--dart-define=MUKAI_TEST_BASE_URL=' + connection['baseUrl'], '--dart-define=MUKAI_TEST_USERNAME=' + connection['username'], '--dart-define=MUKAI_TEST_PASSWORD=' + connection['password'], '--dart-define=MUKAI_TEST_CAPTURE_URL=' + connection['captureUrl'], *sys.argv[1:]]
+            ran_flutter = True
             result = subprocess.run(command, cwd=project)
             log.seek(0)
             backend_output = log.read()
@@ -48,4 +51,12 @@ with tempfile.TemporaryDirectory(prefix='mukai-native-test-') as directory:
                 except subprocess.TimeoutExpired:
                     fixture.kill()
                     fixture.wait()
-        sys.exit(result.returncode)
+            if ran_flutter:
+                # Native tests replace Xcode's entry point with a temporary listener.
+                print('Restoring Xcode settings for lib/main.dart.', flush=True)
+                restore_result = subprocess.run([
+                    str(project / 'scripts/ios.sh'), 'build', 'ios',
+                    '--config-only', '--debug', '--no-codesign', '--no-pub',
+                    '--target', 'lib/main.dart',
+                ], cwd=project).returncode
+        sys.exit(result.returncode or restore_result)

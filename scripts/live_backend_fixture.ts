@@ -83,7 +83,11 @@ async function main() {
         toolInput = { action: 'write_file', path: 'approval-fixture.md', content: '# A little momentum\nThis isolated file was approved from the native app.\n' };
       }
       console.log('MUKAI_FIXTURE_TOOL:' + JSON.stringify({ tools, toolName, prompt: prompt.slice(0, 100) }));
-      const reply = imageRequest
+      const clockRequest = /Check workspace clock/i.test(prompt);
+      const runtimeClock = userText.filter((text: string) => text.startsWith('[Mukai runtime context]')).at(-1) || '';
+      const reply = clockRequest
+        ? 'Clock received by provider:\n' + runtimeClock.split('\n').filter((line: string) => /^(Workspace timezone:|Workspace local now:|Runtime UTC now:)/.test(line)).join('\n')
+        : imageRequest
         ? 'Here is the image from your workspace.\n\n![Mukai preview](preview-image.webp)\n\n[Launch notes](launch-notes.md#L2)'
         : toolFinished
         ? 'Done. Your workspace is up to date, and the result is saved for our next conversation.'
@@ -113,6 +117,12 @@ async function main() {
         for (let index = 0; index < fragments.length; index++) {
           if (response.destroyed) break;
           send({ content: fragments[index] });
+          if (index === 0 && /slow explanation of the launch plan/i.test(prompt)) {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, 30000);
+              response.once('close', () => { clearTimeout(timer); resolve(); });
+            });
+          }
           await new Promise((resolve) => setTimeout(resolve, /slow/i.test(prompt) ? 700 : 90));
         }
         send({}, 'stop');
@@ -164,7 +174,7 @@ async function main() {
     if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${text}`);
     return text ? JSON.parse(text) : null;
   }
-  const workspace = await call('/workspaces', 'POST', { name: 'A little launch', folder });
+  const workspace = await call('/workspaces', 'POST', { name: 'A little launch', folder, timeZone: 'America/Vancouver' });
   const savedProvider = await call('/providers', 'POST', {
     name: 'Local simulator fixture', kind: 'compatible', baseUrl: providerUrl,
     defaultModel: 'mukai-fixture', models: [{ id: 'mukai-fixture', name: 'Mukai fixture', contextWindowTokens: 65536, maxOutputTokens: 4096, supportsImages: true }],

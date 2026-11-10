@@ -11,6 +11,7 @@ class UpdatesScreen extends StatefulWidget {
 class _UpdatesScreenState extends State<UpdatesScreen> {
   int _pages = 1;
   String? _busy;
+  final Map<String, JsonMap> _updates = {};
 
   Future<void> _act(
     String id,
@@ -29,6 +30,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     }
     if (!mounted) return;
     setState(() => _busy = id);
+    final update = _updates[id];
     try {
       final result = await connectedRequest(
         context,
@@ -40,6 +42,15 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
         final conversation = MukaiScope.sessionOf(
           context,
         ).remote!.conversationFromJson(object(result));
+        if (update != null) {
+          MukaiScope.sessionOf(context).setReference(
+            MessageReference(
+              label: words(update['title']),
+              text: words(update['message']),
+            ),
+            conversationId: conversation.id,
+          );
+        }
         widget.onOpenConversation(conversation);
       } else {
         await reload();
@@ -76,6 +87,9 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       },
       builder: (context, data, reload) {
         final inbox = object(data), items = objects(object(data)['items']);
+        _updates
+          ..clear()
+          ..addEntries(items.map((item) => MapEntry(words(item['id']), item)));
         final text = Theme.of(context).textTheme,
             colors = MukaiColors.of(context);
         final total = inbox['total'] is num

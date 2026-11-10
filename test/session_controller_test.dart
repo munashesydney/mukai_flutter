@@ -298,12 +298,31 @@ void main() {
             'conversationId': 'wrong-chat',
             'botId': 'wrong-bot',
           },
+          {
+            'kind': 'pursuit',
+            'workspaceId': session.workspace.id,
+            'conversationId': 'pursuit-chat',
+            'botId': 'pursuit-owner',
+          },
+          {
+            'kind': 'compaction',
+            'workspaceId': session.workspace.id,
+            'conversationId': 'pursuit-chat',
+            'botId': 'pursuit-owner',
+          },
         ],
         'queued': [
           {
             'workspaceId': session.workspace.id,
             'conversationId': 'queued-chat',
             'botId': 'scout',
+          },
+        ],
+        'pursuitRunning': [
+          {
+            'workspaceId': session.workspace.id,
+            'conversationId': 'pursuit-chat',
+            'botId': 'pursuit-owner',
           },
         ],
       };
@@ -313,6 +332,22 @@ void main() {
         'queued-chat',
       });
       expect(session.workingBotIds, {'nova', 'atlas', 'scout'});
+      expect(session.hasRunningPursuit, isTrue);
+      session.aiActivity = {
+        'pursuitRunning': [
+          {'workspaceId': 'other-workspace', 'botId': 'pursuit-owner'},
+        ],
+        'pursuitQueued': [
+          {
+            'workspaceId': session.workspace.id,
+            'conversationId': 'queued-pursuit-chat',
+            'botId': 'pursuit-owner',
+          },
+        ],
+      };
+      expect(session.hasRunningPursuit, isFalse);
+      expect(session.workingConversationIds, {'busy-pair'});
+      expect(session.workingBotIds, {'nova'});
       session.aiActivity = {};
       repository.history.clear();
       await session.openBot('scout', conversationId: 'local-chat');

@@ -16,6 +16,8 @@ import '../../../design/disclosure.dart';
 import '../../../domain/models.dart';
 import 'chat_blocks.dart';
 import 'open_content.dart';
+import '../../../core/message_reference.dart';
+import 'reference_preview.dart';
 
 class MessageView extends StatelessWidget {
   const MessageView({
@@ -23,9 +25,11 @@ class MessageView extends StatelessWidget {
     required this.message,
     required this.bots,
     this.onApproval,
+    this.timeZone,
   });
 
   final ChatMessage message;
+  final String? timeZone;
   final List<MukaiBot> bots;
   final void Function(ApprovalBlock approval, bool approved)? onApproval;
 
@@ -36,7 +40,12 @@ class MessageView extends StatelessWidget {
       messageId: message.id,
       child: message.fromUser
           ? _UserTurn(message: message)
-          : _BotTurn(message: message, bots: bots, onApproval: onApproval),
+          : _BotTurn(
+              message: message,
+              bots: bots,
+              onApproval: onApproval,
+              timeZone: timeZone,
+            ),
     );
   }
 }
@@ -51,6 +60,7 @@ class _UserTurn extends StatelessWidget {
         .whereType<TextBlock>()
         .map((b) => b.text)
         .join('\n\n');
+    final referenced = splitMessageReference(text);
     return Padding(
       padding: const EdgeInsets.only(bottom: MukaiSpace.lg),
       child: Column(
@@ -77,12 +87,25 @@ class _UserTurn extends StatelessWidget {
                     color: colors.accentBorder.withValues(alpha: .7),
                   ),
                 ),
-                child: Text(
-                  text,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colors.accentInk,
-                    height: 1.55,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (referenced.reference case final reference?)
+                      ReferencePreview(reference: reference),
+                    SelectableText(
+                      referenced.text,
+                      contextMenuBuilder: (context, editable) =>
+                          referenceSelectionMenu(
+                            context,
+                            editable,
+                            label: 'You',
+                          ),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colors.accentInk,
+                        height: 1.55,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -101,10 +124,16 @@ class _UserTurn extends StatelessWidget {
 }
 
 class _BotTurn extends StatelessWidget {
-  const _BotTurn({required this.message, required this.bots, this.onApproval});
+  const _BotTurn({
+    required this.message,
+    required this.bots,
+    this.onApproval,
+    this.timeZone,
+  });
 
   final ChatMessage message;
   final List<MukaiBot> bots;
+  final String? timeZone;
   final void Function(ApprovalBlock approval, bool approved)? onApproval;
 
   @override
@@ -142,7 +171,7 @@ class _BotTurn extends StatelessWidget {
               ],
               const SizedBox(width: 7),
               Text(
-                Format.clock(message.at),
+                Format.clock(message.at, timeZone: timeZone),
                 style: text.labelMedium?.copyWith(color: colors.textSoft),
               ),
             ],
@@ -297,6 +326,12 @@ class _WorkTranscriptState extends State<_WorkTranscript> {
                     ),
             ),
           ),
+          if (!_outerExpanded)
+            for (final steering in widget.blocks.whereType<SteeringBlock>())
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: ChatBlockView(block: steering, bots: widget.bots),
+              ),
         ],
       ),
     );
