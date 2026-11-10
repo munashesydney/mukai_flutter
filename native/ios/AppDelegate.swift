@@ -21,6 +21,14 @@ import UserNotifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MukaiPushNotifications") {
       pushNotifications.install(registrar.messenger())
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MukaiGlass") {
+      let glass = FlutterMethodChannel(name: "com.mukai.mobile/glass", binaryMessenger: registrar.messenger())
+      glass.setMethodCallHandler { call, result in
+        guard call.method == "isAvailable" else { result(FlutterMethodNotImplemented); return }
+        if #available(iOS 26.0, *) { result(true) } else { result(false) }
+      }
+      registrar.register(MukaiGlassViewFactory(), withId: "mukai/glass_pill")
+    }
     guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MukaiFilePreview") else { return }
     let channel = FlutterMethodChannel(name: "com.mukai.mobile/preview", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { [weak self] call, result in
@@ -63,6 +71,59 @@ import UserNotifications
     } else { super.application(application, didReceiveRemoteNotification: userInfo, fetchCompletionHandler: completionHandler) }
   }
 
+}
+
+/// Apple's liquid glass as a background material for Flutter-drawn controls.
+/// Flutter keeps the buttons and their behaviour; this view only supplies the
+/// UIGlassEffect material underneath. It is mounted only when the Dart side
+/// sees `isAvailable` (iOS 26+); everywhere else the pre-glass UI is kept.
+private final class MukaiGlassView: UIView {
+  private let effectView = UIVisualEffectView()
+  private let cornerRadius: CGFloat
+
+  init(args: [String: Any]?) {
+    cornerRadius = (args?["cornerRadius"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 22
+    super.init(frame: .zero)
+    if #available(iOS 26.0, *) {
+      let glass = UIGlassEffect(style: .regular)
+      glass.isInteractive = true
+      effectView.effect = glass
+    } else {
+      // Never mounted below iOS 26; stay boring if it somehow is.
+      effectView.effect = UIBlurEffect(style: .systemThinMaterial)
+    }
+    layer.cornerRadius = cornerRadius
+    layer.cornerCurve = .continuous
+    clipsToBounds = true
+    addSubview(effectView)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    effectView.frame = bounds
+    effectView.layer.cornerRadius = cornerRadius
+    effectView.layer.cornerCurve = .continuous
+  }
+}
+
+private final class MukaiGlassPlatformView: NSObject, FlutterPlatformView {
+  private let glassView: MukaiGlassView
+  init(view: MukaiGlassView) { glassView = view }
+  func view() -> UIView { glassView }
+}
+
+private final class MukaiGlassViewFactory: NSObject, FlutterPlatformViewFactory {
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(
+    withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?
+  ) -> FlutterPlatformView {
+    MukaiGlassPlatformView(view: MukaiGlassView(args: args as? [String: Any]))
+  }
 }
 
 /// Quick Look keeps PDF, audio, video and other supported files inside iOS.

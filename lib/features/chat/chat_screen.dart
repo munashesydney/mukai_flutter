@@ -10,6 +10,7 @@ import 'package:file_selector/file_selector.dart';
 
 import '../../app/scope.dart';
 import '../../design/appearance.dart';
+import '../../design/glass.dart';
 import '../../design/theme.dart';
 import '../../design/widgets.dart';
 import '../../domain/models.dart';
@@ -603,22 +604,30 @@ class _ChatHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(6, 4, 10, 8),
       child: Row(
         children: <Widget>[
-          MukaiIconButton(
-            icon: onMenu == null
-                ? Icons.arrow_back_ios_new_rounded
-                : Icons.view_sidebar_outlined,
-            tooltip: onMenu == null ? 'Back' : 'Open sidebar',
-            border: false,
-            iconSize: 17,
-            onTap: () {
-              Haptics.select();
-              if (onMenu != null) {
-                onMenu!();
-              } else {
+          if (onMenu != null)
+            MukaiGlassPill(
+              child: MukaiIconButton(
+                icon: Icons.view_sidebar_outlined,
+                tooltip: 'Open sidebar',
+                border: false,
+                iconSize: 17,
+                onTap: () {
+                  Haptics.select();
+                  onMenu!();
+                },
+              ),
+            )
+          else
+            MukaiIconButton(
+              icon: Icons.arrow_back_ios_new_rounded,
+              tooltip: 'Back',
+              border: false,
+              iconSize: 17,
+              onTap: () {
+                Haptics.select();
                 Navigator.of(context).maybePop();
-              }
-            },
-          ),
+              },
+            ),
           GhostAvatar(mascot: bot.mascot, identity: bot.identity, size: 34),
           const SizedBox(width: 10),
           Expanded(
@@ -673,26 +682,37 @@ class _ChatHeader extends StatelessWidget {
               ],
             ),
           ),
-          MukaiIconButton(
-            icon: Icons.dashboard_outlined,
-            tooltip: 'Activity',
-            border: false,
-            onTap: onActivity,
+          MukaiGlassPill(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                MukaiIconButton(
+                  icon: Icons.dashboard_outlined,
+                  tooltip: 'Activity',
+                  border: false,
+                  onTap: onActivity,
+                ),
+                if (onNewChat != null) ...<Widget>[
+                  const MukaiGlassDivider(),
+                  MukaiIconButton(
+                    icon: Icons.edit_square,
+                    tooltip: 'New chat',
+                    border: false,
+                    onTap: onNewChat,
+                  ),
+                ],
+                if (onRunHistory != null) ...<Widget>[
+                  const MukaiGlassDivider(),
+                  MukaiIconButton(
+                    icon: Icons.arrow_downward_rounded,
+                    tooltip: 'Close run',
+                    border: false,
+                    onTap: onRunHistory,
+                  ),
+                ],
+              ],
+            ),
           ),
-          if (onNewChat != null)
-            MukaiIconButton(
-              icon: Icons.edit_square,
-              tooltip: 'New chat',
-              border: false,
-              onTap: onNewChat,
-            ),
-          if (onRunHistory != null)
-            MukaiIconButton(
-              icon: Icons.arrow_downward_rounded,
-              tooltip: 'Close run',
-              border: false,
-              onTap: onRunHistory,
-            ),
         ],
       ),
     );

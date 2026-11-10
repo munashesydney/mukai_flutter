@@ -7,6 +7,7 @@ import 'sidebar_canvas.dart';
 
 import '../design/appearance.dart';
 import '../core/push_notifications.dart';
+import '../design/glass.dart';
 import '../design/widgets.dart';
 import '../domain/models.dart';
 import '../features/chat/chat_screen.dart';
@@ -401,20 +402,24 @@ class _HomeShellState extends State<HomeShell> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: Row(
                 children: <Widget>[
-                  MukaiIconButton(
-                    icon: Icons.view_sidebar_outlined,
-                    tooltip: 'Open sidebar',
-                    border: false,
-                    onTap: _openSidebar,
+                  MukaiGlassPill(
+                    child: MukaiIconButton(
+                      icon: Icons.view_sidebar_outlined,
+                      tooltip: 'Open sidebar',
+                      border: false,
+                      onTap: _openSidebar,
+                    ),
                   ),
                   const Spacer(),
                   const MukaiWordmark(size: 25),
                   const Spacer(),
-                  MukaiIconButton(
-                    icon: Icons.edit_square,
-                    tooltip: 'New chat',
-                    border: false,
-                    onTap: _newChat,
+                  MukaiGlassPill(
+                    child: MukaiIconButton(
+                      icon: Icons.edit_square,
+                      tooltip: 'New chat',
+                      border: false,
+                      onTap: _newChat,
+                    ),
                   ),
                 ],
               ),
