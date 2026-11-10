@@ -429,6 +429,7 @@ class _PursuitPageState extends State<_PursuitPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('Pursuit'),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
       actions: [
         PopupMenuButton<String>(
           tooltip: 'Pursuit options',

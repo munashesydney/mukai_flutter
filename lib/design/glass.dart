@@ -24,6 +24,32 @@ abstract final class MukaiGlass {
 
   static Future<bool> get available => _probe ??= _detect();
 
+  /// Hides the native material for the length of a page-wide transform.
+  /// iOS composites platform views above the Flutter layer and punches a
+  /// hole in that layer for them; while the sidebar drags the page through
+  /// a Transform+ClipRRect the hole lags the moving clip and tears as a
+  /// bright band along the page edge. The controls stay; only the material
+  /// steps out until the page settles. Callers must drive this from live
+  /// motion state — a purely event-driven flag can strand and take the
+  /// material app-wide.
+  static final ValueNotifier<bool> hidden = ValueNotifier<bool>(false);
+
+  static bool? _lastDark;
+
+  /// Tells the native side the app's brightness. The app can force Light or
+  /// Dark while the system sits in the other mode, and a platform view only
+  /// sees the system appearance — without this the glass renders the wrong
+  /// mode's material. Deduplicated: every surface calls it, the channel
+  /// fires once per actual change.
+  static void syncAppearance({required bool isDark}) {
+    if (_lastDark == isDark) return;
+    _lastDark = isDark;
+    // Fire-and-forget; failures leave the glass on its last appearance.
+    _channel
+        .invokeMethod<void>('appearance', <String, Object?>{'dark': isDark})
+        .catchError((Object _) {});
+  }
+
   static Future<bool> _detect() async {
     if (kIsWeb || !Platform.isIOS) return false;
     try {
@@ -84,18 +110,35 @@ class MukaiGlassSurface extends StatelessWidget {
       initialData: false,
       builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
         if (snapshot.data != true) return content;
-        return Stack(
-          children: <Widget>[
-            Positioned.fill(
-              child: UiKitView(
-                viewType: 'mukai/glass_pill',
-                hitTestBehavior: PlatformViewHitTestBehavior.transparent,
-                creationParams: <String, Object?>{'cornerRadius': cornerRadius},
-                creationParamsCodec: const StandardMessageCodec(),
-              ),
-            ),
-            content,
-          ],
+        // The native view cannot read the Flutter theme; hand it the
+        // brightness so light mode gets light glass even when the system
+        // disagrees with the app's forced mode.
+        final bool isDark = MukaiColors.of(context).isDark;
+        MukaiGlass.syncAppearance(isDark: isDark);
+        return ValueListenableBuilder<bool>(
+          valueListenable: MukaiGlass.hidden,
+          child: content,
+          builder: (BuildContext context, bool hidden, Widget? child) {
+            // The material steps out while the page transforms (see
+            // MukaiGlass.hidden); the controls are untouched.
+            if (hidden) return child!;
+            return Stack(
+              children: <Widget>[
+                Positioned.fill(
+                  child: UiKitView(
+                    viewType: 'mukai/glass_pill',
+                    hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+                    creationParams: <String, Object?>{
+                      'cornerRadius': cornerRadius,
+                      'dark': isDark,
+                    },
+                    creationParamsCodec: const StandardMessageCodec(),
+                  ),
+                ),
+                content,
+              ],
+            );
+          },
         );
       },
     );
@@ -138,15 +181,16 @@ class MukaiGlassPill extends StatelessWidget {
     double diameter = 48,
     double padding = 2,
   }) {
-    return MukaiGlassPill(
+    final double inner = diameter - padding * 2;
+    // Built on the surface directly: routing through the pill would wrap the
+    // fixed inner box in its `SizedBox(height:)`, whose tight height beats
+    // the child's tight width — the glass ends up [padding]*2 taller than
+    // wide, exactly the flat left/right sides this factory exists to avoid.
+    return MukaiGlassSurface(
       key: key,
-      height: diameter,
+      cornerRadius: diameter / 2,
       padding: EdgeInsets.all(padding),
-      child: SizedBox(
-        width: diameter - padding * 2,
-        height: diameter - padding * 2,
-        child: child,
-      ),
+      child: SizedBox(width: inner, height: inner, child: child),
     );
   }
 }

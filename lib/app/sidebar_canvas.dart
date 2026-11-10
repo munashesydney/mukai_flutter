@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../design/appearance.dart';
+import '../design/glass.dart';
 
 /// A full-size page that follows a horizontal swipe above the navigation.
 class SidebarCanvas extends StatefulWidget {
@@ -18,7 +19,36 @@ class SidebarCanvasState extends State<SidebarCanvas>
     duration: const Duration(milliseconds: 340),
   );
   bool _open = false;
+  bool _dragging = false;
   double _width = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fast path: return the material the instant the settle animation ends.
+    // _syncGlassHidden (below) is the safety net that keeps the flag honest
+    // even if a status event is ever missed.
+    _motion.addStatusListener((AnimationStatus status) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
+        if (MukaiGlass.hidden.value) MukaiGlass.hidden.value = false;
+      }
+    });
+  }
+
+  /// Glass is native iOS platform views composited above the Flutter layer.
+  /// The hole cut for them in that layer lags a moving ClipRRect and tears
+  /// as a bright band along the page edge, so the material steps out while
+  /// the page moves. Deriving it from live state (drag or running animation)
+  /// each frame — instead of trusting lifecycle callbacks alone — means it
+  /// can never strand hidden and take the material app-wide.
+  void _syncGlassHidden() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final bool moving = _dragging || _motion.isAnimating;
+      if (MukaiGlass.hidden.value != moving) MukaiGlass.hidden.value = moving;
+    });
+  }
 
   void open() => _settle(true);
   void close() => _settle(false);
@@ -31,21 +61,27 @@ class SidebarCanvasState extends State<SidebarCanvas>
     } else {
       _motion.animateTo(open ? 1 : 0, curve: Curves.easeOutCubic);
     }
+    _syncGlassHidden();
   }
 
   void _drag(DragUpdateDetails details) {
     if (_width == 0) return;
     FocusManager.instance.primaryFocus?.unfocus();
+    _dragging = true;
     _motion.value = (_motion.value + details.delta.dx / _width).clamp(0, 1);
   }
 
   void _finish(DragEndDetails details) {
+    _dragging = false;
     final speed = details.primaryVelocity ?? 0;
     _settle(speed.abs() > 400 ? speed > 0 : _motion.value > .45);
   }
 
   @override
   void dispose() {
+    // Never leave the app stranded without material because this canvas is
+    // gone while its page was mid motion.
+    if (MukaiGlass.hidden.value) MukaiGlass.hidden.value = false;
     _motion.dispose();
     super.dispose();
   }
@@ -74,6 +110,7 @@ class SidebarCanvasState extends State<SidebarCanvas>
                 child: RepaintBoundary(child: widget.child),
                 builder: (context, page) {
                   final progress = _motion.value;
+                  _syncGlassHidden();
                   final radius = BorderRadius.horizontal(
                     left: Radius.circular(42 * progress),
                   );

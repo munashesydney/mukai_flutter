@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../app/scope.dart';
 import '../../core/format.dart';
 import '../../core/workspace_time.dart';
+import '../../design/glass.dart';
 import '../../design/widgets.dart';
 import '../../domain/models.dart';
 
@@ -69,7 +70,10 @@ class _TimezoneScreenState extends State<TimezoneScreen> {
     final valid = selected != null && WorkspaceTime.isValid(selected);
     final local = valid ? WorkspaceTime.local(_now, selected) : null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Timezone')),
+      appBar: AppBar(
+        title: const Text('Timezone'),
+        leading: MukaiGlassPill.circle(child: const BackButton()),
+      ),
       body: SafeArea(
         top: false,
         child: Column(

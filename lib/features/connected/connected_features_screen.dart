@@ -5,6 +5,7 @@ import '../../core/workspace_time.dart';
 
 import '../../app/scope.dart';
 import '../../design/appearance.dart';
+import '../../design/glass.dart';
 import '../../design/widgets.dart';
 import '../../design/disclosure.dart';
 import '../../domain/models.dart';
@@ -225,7 +226,10 @@ class _WorkpadPageState extends State<_WorkpadPage> {
   bool _archived = false;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Workpad')),
+    appBar: AppBar(
+      title: const Text('Workpad'),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
+    ),
     body: Column(
       children: <Widget>[
         Padding(
@@ -348,7 +352,10 @@ class _WorkpadEntry extends StatelessWidget {
   final String pursuitId, entryId;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Workpad entry')),
+    appBar: AppBar(
+      title: const Text('Workpad entry'),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
+    ),
     body: ConnectedAsync(
       refreshInterval: const Duration(seconds: 5),
       load: () => connectedRequest(
@@ -437,7 +444,10 @@ class _SpaceEditorState extends State<_SpaceEditor> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('New space')),
+    appBar: AppBar(
+      title: const Text('New space'),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
+    ),
     body: SafeArea(
       top: false,
       child: ListView(
@@ -513,7 +523,10 @@ class _ToolPageState extends State<_ToolPage> {
   );
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(words(widget.tool['name'], 'Tool'))),
+    appBar: AppBar(
+      title: Text(words(widget.tool['name'], 'Tool')),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
+    ),
     body: ListView(
       padding: const EdgeInsets.all(24),
       children: <Widget>[

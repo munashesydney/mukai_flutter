@@ -24,8 +24,16 @@ import UserNotifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MukaiGlass") {
       let glass = FlutterMethodChannel(name: "com.mukai.mobile/glass", binaryMessenger: registrar.messenger())
       glass.setMethodCallHandler { call, result in
-        guard call.method == "isAvailable" else { result(FlutterMethodNotImplemented); return }
-        if #available(iOS 26.0, *) { result(true) } else { result(false) }
+        switch call.method {
+        case "isAvailable":
+          if #available(iOS 26.0, *) { result(true) } else { result(false) }
+        case "appearance":
+          let args = call.arguments as? [String: Any]
+          let dark = (args?["dark"] as? NSNumber)?.boolValue ?? false
+          MukaiGlassView.setDark(dark)
+          result(nil)
+        default: result(FlutterMethodNotImplemented)
+        }
       }
       registrar.register(MukaiGlassViewFactory(), withId: "mukai/glass_pill")
     }
@@ -80,22 +88,65 @@ import UserNotifications
 private final class MukaiGlassView: UIView {
   private let effectView = UIVisualEffectView()
   private let cornerRadius: CGFloat
+  private var appliedStyle: UIUserInterfaceStyle?
 
-  init(args: [String: Any]?) {
+  /// Live pills, so an in-app Light/Dark flip — which never changes the
+  /// system appearance — can restyle every mounted pill at once. Weak: the
+  /// platform view's lifetime decides membership.
+  private static let mounted = NSHashTable<MukaiGlassView>.weakObjects()
+
+  static func setDark(_ dark: Bool) {
+    for view in mounted.allObjects {
+      view.overrideUserInterfaceStyle = dark ? .dark : .light
+    }
+  }
+
+  init(args: [String: Any?]?) {
     cornerRadius = (args?["cornerRadius"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 22
     super.init(frame: .zero)
+    // The app can force Light or Dark while the system sits in the other
+    // mode; a platform view only ever sees the system appearance, so Dart
+    // passes the brightness explicitly and we pin the view's traits to it.
+    if let dark = (args?["dark"] as? NSNumber)?.boolValue {
+      overrideUserInterfaceStyle = dark ? .dark : .light
+    }
+    layer.cornerRadius = cornerRadius
+    layer.cornerCurve = .continuous
+    clipsToBounds = true
+    addSubview(effectView)
+    Self.mounted.add(self)
+    applyGlass()
+  }
+
+  /// `.regular` glass tints heavily on light backgrounds and reads as a flat
+  /// grey blob; `.clear` keeps the rim refraction without the fill, which is
+  /// how ChatGPT's light-mode controls look. Dark keeps the richer `.regular`.
+  private func applyGlass() {
     if #available(iOS 26.0, *) {
-      let glass = UIGlassEffect(style: .regular)
+      let style = traitCollection.userInterfaceStyle
+      guard style != .unspecified, style != appliedStyle else { return }
+      appliedStyle = style
+      let glass = UIGlassEffect(style: style == .light ? .clear : .regular)
       glass.isInteractive = true
       effectView.effect = glass
     } else {
       // Never mounted below iOS 26; stay boring if it somehow is.
       effectView.effect = UIBlurEffect(style: .systemThinMaterial)
     }
-    layer.cornerRadius = cornerRadius
-    layer.cornerCurve = .continuous
-    clipsToBounds = true
-    addSubview(effectView)
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    // Traits are only trustworthy once the view has a window; the factory
+    // builds the view before it joins one.
+    if window != nil { applyGlass() }
+  }
+
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+      applyGlass()
+    }
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

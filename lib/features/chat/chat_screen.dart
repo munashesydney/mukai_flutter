@@ -677,10 +677,38 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ChatGPT-style: a transparent bar with the mascot floating in the middle
-    // and the controls on their glass pills at the edges.
+    // ChatGPT-style: a transparent bar with the mascot floating dead-centre
+    // (hence the symmetric side padding) and the controls on glass at the
+    // edges. One control gets a true circle; two or more share a pill whose
+    // ends are still fully round, so the row matches the dock below it.
+    final actions = <Widget>[
+      MukaiIconButton(
+        icon: Icons.dashboard_outlined,
+        tooltip: 'Activity',
+        border: false,
+        onTap: onActivity,
+      ),
+      if (onNewChat != null) ...<Widget>[
+        const MukaiGlassDivider(),
+        MukaiIconButton(
+          icon: Icons.edit_square,
+          tooltip: 'New chat',
+          border: false,
+          onTap: onNewChat,
+        ),
+      ],
+      if (onRunHistory != null) ...<Widget>[
+        const MukaiGlassDivider(),
+        MukaiIconButton(
+          icon: Icons.arrow_downward_rounded,
+          tooltip: 'Close run',
+          border: false,
+          onTap: onRunHistory,
+        ),
+      ],
+    ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 4, 10, 8),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
       child: SizedBox(
         height: 48,
         child: Stack(
@@ -693,37 +721,14 @@ class _ChatHeader extends StatelessWidget {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: MukaiGlassPill(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    MukaiIconButton(
-                      icon: Icons.dashboard_outlined,
-                      tooltip: 'Activity',
-                      border: false,
-                      onTap: onActivity,
+              child: actions.length == 1
+                  ? MukaiGlassPill.circle(child: actions.first)
+                  : MukaiGlassPill(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: actions,
+                      ),
                     ),
-                    if (onNewChat != null) ...<Widget>[
-                      const MukaiGlassDivider(),
-                      MukaiIconButton(
-                        icon: Icons.edit_square,
-                        tooltip: 'New chat',
-                        border: false,
-                        onTap: onNewChat,
-                      ),
-                    ],
-                    if (onRunHistory != null) ...<Widget>[
-                      const MukaiGlassDivider(),
-                      MukaiIconButton(
-                        icon: Icons.arrow_downward_rounded,
-                        tooltip: 'Close run',
-                        border: false,
-                        onTap: onRunHistory,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -740,15 +745,19 @@ class _SidebarToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (onMenu == null) {
-      return MukaiIconButton(
-        icon: Icons.arrow_back_ios_new_rounded,
-        tooltip: 'Back',
-        border: false,
-        iconSize: 17,
-        onTap: () {
-          Haptics.select();
-          Navigator.of(context).maybePop();
-        },
+      // A page's back affordance gets the same glass circle as every other
+      // floating control, so headers read the same across the app.
+      return MukaiGlassPill.circle(
+        child: MukaiIconButton(
+          icon: Icons.arrow_back_ios_new_rounded,
+          tooltip: 'Back',
+          border: false,
+          iconSize: 17,
+          onTap: () {
+            Haptics.select();
+            Navigator.of(context).maybePop();
+          },
+        ),
       );
     }
     return MukaiGlassPill.circle(

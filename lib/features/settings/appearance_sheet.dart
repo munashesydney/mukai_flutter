@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
 import '../../design/appearance.dart';
+import '../../design/glass.dart';
 import '../../design/theme.dart';
 import '../../design/widgets.dart';
 
@@ -45,11 +46,13 @@ class AppearanceSheet extends StatelessWidget {
                     Positioned(
                       right: 8,
                       top: 14,
-                      child: MukaiIconButton(
-                        icon: Icons.close_rounded,
-                        tooltip: 'Close appearance',
-                        border: false,
-                        onTap: () => Navigator.pop(context),
+                      child: MukaiGlassPill.circle(
+                        child: MukaiIconButton(
+                          icon: Icons.close_rounded,
+                          tooltip: 'Close appearance',
+                          border: false,
+                          onTap: () => Navigator.pop(context),
+                        ),
                       ),
                     ),
                   ],

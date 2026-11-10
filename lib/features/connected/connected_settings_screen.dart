@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../app/scope.dart';
 import '../settings/notifications_sheet.dart';
 
+import '../../design/glass.dart';
 import '../../design/widgets.dart';
 import '../settings/appearance_sheet.dart';
 import '../settings/timezone_screen.dart';
@@ -297,7 +298,10 @@ class _ProfileEditorState extends State<_ProfileEditor> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Profile')),
+    appBar: AppBar(
+      title: const Text('Profile'),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
+    ),
     body: SafeArea(
       top: false,
       child: ListView(
@@ -377,7 +381,10 @@ class _ProviderPage extends StatelessWidget {
   final JsonMap provider;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(words(provider['name'], 'Provider'))),
+    appBar: AppBar(
+      title: Text(words(provider['name'], 'Provider')),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
+    ),
     body: ConnectedAsync(
       load: () async {
         final list = objects(await connectedRequest(context, '/providers'));
@@ -600,6 +607,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(widget.provider == null ? 'Add provider' : 'Edit provider'),
+      leading: MukaiGlassPill.circle(child: const BackButton()),
     ),
     body: SafeArea(
       top: false,
