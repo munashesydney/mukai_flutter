@@ -78,6 +78,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scroll = ScrollController();
   bool _showJump = false;
   bool _joiningReference = false;
+  bool _runMenuOpen = false;
   _ChatView _view = _ChatView.chat;
 
   /// The header and composer float over the full-bleed thread, so the scroll
@@ -457,11 +458,19 @@ class _ChatScreenState extends State<ChatScreen> {
                         onNewChat: widget.onNewChat,
                         onRunHistory: run?.onHistory,
                         runView: run == null ? null : _view,
+                        menuOpen: _runMenuOpen,
                         onViewChanged: run == null
                             ? null
                             : (view) {
                                 FocusManager.instance.primaryFocus?.unfocus();
                                 setState(() => _view = view);
+                              },
+                        onMenuOpenChanged: run == null
+                            ? null
+                            : (open) {
+                                if (mounted) {
+                                  setState(() => _runMenuOpen = open);
+                                }
                               },
                       ),
                       if (session.hasError)
@@ -677,6 +686,8 @@ class _ChatHeader extends StatelessWidget {
     this.onRunHistory,
     this.runView,
     this.onViewChanged,
+    this.menuOpen = false,
+    this.onMenuOpenChanged,
   });
 
   final MukaiBot bot;
@@ -687,6 +698,8 @@ class _ChatHeader extends StatelessWidget {
   final VoidCallback? onRunHistory;
   final _ChatView? runView;
   final ValueChanged<_ChatView>? onViewChanged;
+  final bool menuOpen;
+  final ValueChanged<bool>? onMenuOpenChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -725,6 +738,7 @@ class _ChatHeader extends StatelessWidget {
         // pill instead of a second floating row of chips.
         MukaiGlassMenuButton(
           tooltip: 'Switch view',
+          onOpenChanged: onMenuOpenChanged,
           icon: Icon(
             Icons.more_horiz_rounded,
             size: 18,
@@ -762,14 +776,30 @@ class _ChatHeader extends StatelessWidget {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: actions.length == 1
-                  ? MukaiGlassPill.circle(child: actions.first)
-                  : MukaiGlassPill(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: actions,
-                      ),
-                    ),
+              child: IgnorePointer(
+                ignoring: menuOpen,
+                // The view menu unfurls from the kebab, so the pill steps
+                // aside while it is up — the panel replaces the pill rather
+                // than stacking next to it.
+                child: AnimatedScale(
+                  scale: menuOpen ? .72 : 1,
+                  duration: MukaiMotion.fast,
+                  curve: MukaiMotion.curve,
+                  child: AnimatedOpacity(
+                    opacity: menuOpen ? 0 : 1,
+                    duration: MukaiMotion.fast,
+                    curve: MukaiMotion.curve,
+                    child: actions.length == 1
+                        ? MukaiGlassPill.circle(child: actions.first)
+                        : MukaiGlassPill(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: actions,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

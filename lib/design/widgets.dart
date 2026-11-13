@@ -429,6 +429,7 @@ class MukaiGlassMenuButton extends StatefulWidget {
     required this.items,
     this.width = 190,
     this.size = 44,
+    this.onOpenChanged,
   });
 
   final String tooltip;
@@ -437,6 +438,11 @@ class MukaiGlassMenuButton extends StatefulWidget {
   final double width;
   final double size;
 
+  /// Reports open/dismissed so the surrounding control can get out of the
+  /// way while the panel is up, selling the "pill turns into the panel"
+  /// reveal instead of two floating surfaces competing for attention.
+  final ValueChanged<bool>? onOpenChanged;
+
   @override
   State<MukaiGlassMenuButton> createState() => _MukaiGlassMenuButtonState();
 }
@@ -444,18 +450,20 @@ class MukaiGlassMenuButton extends StatefulWidget {
 class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
   final GlobalKey _anchor = GlobalKey();
 
-  void _open() {
+  Future<void> _open() async {
     if (widget.items.isEmpty) return;
     final RenderBox? box =
         _anchor.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
-    Navigator.of(context).push(
+    widget.onOpenChanged?.call(true);
+    await Navigator.of(context).push(
       _MukaiGlassMenuRoute(
         items: widget.items,
         width: widget.width,
         anchor: box.localToGlobal(Offset.zero) & box.size,
       ),
     );
+    if (mounted) widget.onOpenChanged?.call(false);
   }
 
   @override
@@ -511,14 +519,16 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     final MukaiColors colors = MukaiColors.of(context);
     final Size screen = MediaQuery.sizeOf(context);
     final double panelHeight = items.length * _itemHeight + 12;
-    // Opens under the anchor, right-aligned to it; flips above when the
-    // bottom edge runs out of room, then clamps inside the screen.
-    double top = anchor.bottom + 6;
+    // The panel starts where the pill was: its top-right corner pins to the
+    // pill's corner (the anchor is the kebab, inset a few px inside the
+    // glass), so the reveal reads as the pill unfurling down-left. Flips
+    // below the anchor when the bottom edge runs out, then clamps inside.
+    double top = anchor.top - 2;
     if (top + panelHeight > screen.height - 12) {
-      top = anchor.top - 6 - panelHeight;
+      top = anchor.bottom + 6;
     }
     top = top.clamp(12.0, math.max(12.0, screen.height - panelHeight - 12));
-    double left = anchor.right - width;
+    double left = anchor.right + 4 - width;
     if (left + width > screen.width - 12) left = screen.width - width - 12;
     if (left < 12) left = 12;
     return Stack(
@@ -599,9 +609,11 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     Widget child,
   ) {
     return FadeTransition(
-      opacity: animation,
+      opacity: CurvedAnimation(parent: animation, curve: MukaiMotion.curve),
       child: ScaleTransition(
-        scale: Tween<double>(begin: .92, end: 1).animate(
+        // Grows out of the kebab (and shrinks back into it on dismiss), so
+        // the panel reads as the pill unfurling rather than a new card.
+        scale: Tween<double>(begin: .62, end: 1).animate(
           CurvedAnimation(parent: animation, curve: MukaiMotion.springy),
         ),
         alignment: Alignment.topRight,
