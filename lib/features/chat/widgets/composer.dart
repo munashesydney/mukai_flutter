@@ -179,134 +179,142 @@ class _MukaiComposerState extends State<MukaiComposer> {
       child: MukaiGlassProbe(
         builder: (BuildContext context, bool glass, Widget? _) =>
             MukaiGlassSurface(
-          cornerRadius: 26,
-          child: AnimatedContainer(
-            duration: MukaiMotion.fast,
-            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-            decoration: BoxDecoration(
-              // On glass the material itself supplies depth and edges.
-              color: glass ? null : colors.card,
-              borderRadius: BorderRadius.circular(26),
-              border: glass ? null : Border.all(color: colors.hairlineStrong),
-              boxShadow: glass
-                  ? null
-                  : MukaiShadows.card(colors.brightness),
-            ),
-            child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (widget.reference case final reference?)
-              ReferencePreview(
-                reference: reference,
-                onRemove: widget.onRemoveReference,
-              ),
-            if (widget.attachments.isNotEmpty)
-              SizedBox(
-                height: 44,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final file in widget.attachments)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: InputChip(
-                          label: Text(file['name'] as String? ?? 'File'),
-                          onDeleted: () => widget.onRemoveAttachment?.call(
-                            file['id'] as String,
-                          ),
+              cornerRadius: 26,
+              child: AnimatedContainer(
+                duration: MukaiMotion.fast,
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                decoration: BoxDecoration(
+                  // On glass the material itself supplies depth and edges.
+                  color: glass ? null : colors.card,
+                  borderRadius: BorderRadius.circular(26),
+                  border: glass
+                      ? null
+                      : Border.all(color: colors.hairlineStrong),
+                  boxShadow: glass
+                      ? null
+                      : MukaiShadows.card(colors.brightness),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (widget.reference case final reference?)
+                      ReferencePreview(
+                        reference: reference,
+                        onRemove: widget.onRemoveReference,
+                      ),
+                    if (widget.attachments.isNotEmpty)
+                      SizedBox(
+                        height: 44,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (final file in widget.attachments)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: InputChip(
+                                  label: Text(
+                                    file['name'] as String? ?? 'File',
+                                  ),
+                                  onDeleted: () => widget.onRemoveAttachment
+                                      ?.call(file['id'] as String),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
+                    TextField(
+                      enabled: widget.enabled,
+                      autofocus: widget.autofocus || widget.reference != null,
+                      controller: _input,
+                      focusNode: _focus,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
+                      textInputAction: TextInputAction.newline,
+                      style: text.bodyLarge?.copyWith(
+                        color: colors.ink,
+                        height: 1.45,
+                      ),
+                      decoration: InputDecoration(
+                        filled: false,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.fromLTRB(2, 14, 8, 14),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        hintText: widget.responding && widget.allowQueue
+                            ? 'Add a follow-up…'
+                            : 'Message ${widget.botName}…',
+                        hintStyle: text.bodyLarge?.copyWith(
+                          color: colors.textMuted,
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: <Widget>[
+                        MukaiIconButton(
+                          icon: Icons.add_rounded,
+                          tooltip: widget.onAttach == null
+                              ? 'Paste text'
+                              : 'Add attachment',
+                          size: 44,
+                          border: false,
+                          onTap: widget.onAttach ?? _paste,
+                        ),
+                        _ModePicker(
+                          mode: widget.accessMode == null
+                              ? _mode
+                              : widget.accessMode == 'ask-for-approval'
+                              ? ApprovalMode.approvals
+                              : ApprovalMode.fullAccess,
+                          onChanged: (mode) {
+                            if (widget.accessMode != null) {
+                              widget.onModeChanged?.call(
+                                mode == ApprovalMode.approvals
+                                    ? 'ask-for-approval'
+                                    : 'full-access',
+                              );
+                            } else {
+                              setState(() => _mode = mode);
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: _ModelPicker(
+                            model: widget.onModelChanged == null
+                                ? _model
+                                : widget.modelLabel,
+                            options: widget.modelOptions,
+                            onChanged: (model) {
+                              if (widget.onModelChanged != null) {
+                                widget.onModelChanged!(model);
+                              } else {
+                                setState(() => _model = model);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (widget.responding && widget.allowQueue && _canSend)
+                          MukaiIconButton(
+                            icon: Icons.playlist_add_rounded,
+                            tooltip: 'Queue follow-up',
+                            border: false,
+                            onTap: _send,
+                          ),
+                        _SendButton(
+                          canSend: _canSend,
+                          responding: widget.responding,
+                          onSend: _send,
+                          onStop: widget.onStop,
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-            TextField(
-              enabled: widget.enabled,
-              autofocus: widget.autofocus || widget.reference != null,
-              controller: _input,
-              focusNode: _focus,
-              minLines: 1,
-              maxLines: 5,
-              textCapitalization: TextCapitalization.sentences,
-              textInputAction: TextInputAction.newline,
-              style: text.bodyLarge?.copyWith(color: colors.ink, height: 1.45),
-              decoration: InputDecoration(
-                filled: false,
-                isDense: true,
-                contentPadding: const EdgeInsets.fromLTRB(2, 14, 8, 14),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                hintText: widget.responding && widget.allowQueue
-                    ? 'Add a follow-up…'
-                    : 'Message ${widget.botName}…',
-                hintStyle: text.bodyLarge?.copyWith(color: colors.textMuted),
-              ),
             ),
-            Row(
-              children: <Widget>[
-                MukaiIconButton(
-                  icon: Icons.add_rounded,
-                  tooltip: widget.onAttach == null
-                      ? 'Paste text'
-                      : 'Add attachment',
-                  size: 44,
-                  border: false,
-                  onTap: widget.onAttach ?? _paste,
-                ),
-                _ModePicker(
-                  mode: widget.accessMode == null
-                      ? _mode
-                      : widget.accessMode == 'ask-for-approval'
-                      ? ApprovalMode.approvals
-                      : ApprovalMode.fullAccess,
-                  onChanged: (mode) {
-                    if (widget.accessMode != null) {
-                      widget.onModeChanged?.call(
-                        mode == ApprovalMode.approvals
-                            ? 'ask-for-approval'
-                            : 'full-access',
-                      );
-                    } else {
-                      setState(() => _mode = mode);
-                    }
-                  },
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: _ModelPicker(
-                    model: widget.onModelChanged == null
-                        ? _model
-                        : widget.modelLabel,
-                    options: widget.modelOptions,
-                    onChanged: (model) {
-                      if (widget.onModelChanged != null) {
-                        widget.onModelChanged!(model);
-                      } else {
-                        setState(() => _model = model);
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (widget.responding && widget.allowQueue && _canSend)
-                  MukaiIconButton(
-                    icon: Icons.playlist_add_rounded,
-                    tooltip: 'Queue follow-up',
-                    border: false,
-                    onTap: _send,
-                  ),
-                _SendButton(
-                  canSend: _canSend,
-                  responding: widget.responding,
-                  onSend: _send,
-                  onStop: widget.onStop,
-                ),
-              ],
-            ),
-            ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -358,7 +366,7 @@ class _ModePicker extends StatelessWidget {
   }
 }
 
-class _ModelPicker extends StatelessWidget {
+class _ModelPicker extends StatefulWidget {
   const _ModelPicker({
     required this.model,
     required this.options,
@@ -369,71 +377,78 @@ class _ModelPicker extends StatelessWidget {
   final List<String> options;
   final ValueChanged<String> onChanged;
 
+  @override
+  State<_ModelPicker> createState() => _ModelPickerState();
+}
+
+class _ModelPickerState extends State<_ModelPicker> {
+  bool _open = false;
+
   String _shorten(String value) =>
       value.length <= 16 ? value : '${value.substring(0, 15)}…';
 
   @override
   Widget build(BuildContext context) {
     final MukaiColors colors = MukaiColors.of(context);
-    return MenuAnchor(
-      menuChildren: <Widget>[
-        for (final String option in options)
-          MenuItemButton(
-            trailingIcon: option == model
-                ? const Icon(Icons.check_rounded, size: 16)
-                : null,
-            onPressed: () => onChanged(option),
-            child: Text(option),
-          ),
-      ],
-      builder:
-          (BuildContext context, MenuController controller, Widget? child) {
-            return PressableScale(
-              scale: 0.94,
-              onTap: () {
-                Haptics.select();
-                if (controller.isOpen) {
-                  controller.close();
-                } else {
-                  controller.open();
-                }
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(MukaiRadii.chip),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        model == 'Workspace default'
-                            ? 'Default model'
-                            : _shorten(model),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: colors.textSecondary,
-                              fontSize: 12,
-                            ),
+    final String model = widget.model;
+    return MukaiGlassMenuButton(
+      tooltip: model,
+      width: 220,
+      expandWidth: true,
+      up: true,
+      onOpenChanged: (open) {
+        if (mounted) setState(() => _open = open);
+      },
+      icon: IgnorePointer(
+        ignoring: _open,
+        // The panel unfurls from the chip, so only the chip steps aside —
+        // the rest of the composer stays put.
+        child: AnimatedScale(
+          scale: _open ? .8 : 1,
+          duration: MukaiMotion.fast,
+          curve: MukaiMotion.curve,
+          child: AnimatedOpacity(
+            opacity: _open ? 0 : 1,
+            duration: MukaiMotion.fast,
+            curve: MukaiMotion.curve,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
+                      model == 'Workspace default'
+                          ? 'Default model'
+                          : _shorten(model),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: colors.textSecondary,
+                        fontSize: 12,
                       ),
                     ),
-                    Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      size: 14,
-                      color: colors.textMuted,
-                    ),
-                  ],
-                ),
+                  ),
+                  Icon(
+                    Icons.keyboard_arrow_up_rounded,
+                    size: 14,
+                    color: colors.textMuted,
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
+        ),
+      ),
+      items: [
+        for (final String option in widget.options)
+          MukaiGlassMenuItem(
+            label: option,
+            selected: option == model,
+            onTap: () => widget.onChanged(option),
+          ),
+      ],
     );
   }
 }

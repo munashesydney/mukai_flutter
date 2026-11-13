@@ -429,6 +429,8 @@ class MukaiGlassMenuButton extends StatefulWidget {
     required this.items,
     this.width = 190,
     this.size = 44,
+    this.expandWidth = false,
+    this.up = false,
     this.onOpenChanged,
   });
 
@@ -437,6 +439,14 @@ class MukaiGlassMenuButton extends StatefulWidget {
   final List<MukaiGlassMenuItem> items;
   final double width;
   final double size;
+
+  /// Let the control fill the width it is given (a composer chip row) instead
+  /// of the default square.
+  final bool expandWidth;
+
+  /// Open upward — for controls anchored at the bottom of the screen, like
+  /// the composer's model picker.
+  final bool up;
 
   /// Reports open/dismissed so the surrounding control can get out of the
   /// way while the panel is up, selling the "pill turns into the panel"
@@ -461,6 +471,7 @@ class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
         items: widget.items,
         width: widget.width,
         anchor: box.localToGlobal(Offset.zero) & box.size,
+        up: widget.up,
       ),
     );
     if (mounted) widget.onOpenChanged?.call(false);
@@ -475,7 +486,7 @@ class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
         onTap: _open,
         child: SizedBox(
           key: _anchor,
-          width: widget.size,
+          width: widget.expandWidth ? double.infinity : widget.size,
           height: widget.size,
           child: Center(child: widget.icon),
         ),
@@ -489,11 +500,13 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     required this.items,
     required this.width,
     required this.anchor,
+    this.up = false,
   });
 
   final List<MukaiGlassMenuItem> items;
   final double width;
   final Rect anchor;
+  final bool up;
 
   static const double _radius = 18;
   static const double _itemHeight = 44;
@@ -518,14 +531,22 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
   ) {
     final MukaiColors colors = MukaiColors.of(context);
     final Size screen = MediaQuery.sizeOf(context);
-    final double panelHeight = items.length * _itemHeight + 12;
-    // The panel starts where the pill was: its top-right corner pins to the
-    // pill's corner (the anchor is the kebab, inset a few px inside the
-    // glass), so the reveal reads as the pill unfurling down-left. Flips
-    // below the anchor when the bottom edge runs out, then clamps inside.
-    double top = anchor.top - 2;
-    if (top + panelHeight > screen.height - 12) {
-      top = anchor.bottom + 6;
+    final double panelHeight = math.min(
+      items.length * _itemHeight + 12,
+      screen.height - 24,
+    );
+    // The panel starts where the control was: for a header menu the
+    // top-right corner pins to the pill's corner and the panel unfurls
+    // down-left; for a bottom-anchored control (drop-up) the bottom-right
+    // corner pins and it unfurls up-left. Each flips to the other side when
+    // the screen edge runs out, then clamps inside.
+    double top;
+    if (up) {
+      top = anchor.bottom + 2 - panelHeight;
+      if (top < 12) top = anchor.top + 6;
+    } else {
+      top = anchor.top - 2;
+      if (top + panelHeight > screen.height - 12) top = anchor.bottom + 6;
     }
     top = top.clamp(12.0, math.max(12.0, screen.height - panelHeight - 12));
     double left = anchor.right + 4 - width;
@@ -561,35 +582,42 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
                       clipBehavior: Clip.antiAlias,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            for (final item in items)
-                              SizedBox(
-                                height: _itemHeight,
-                                child: ListTile(
-                                  dense: true,
-                                  onTap: () {
-                                    Navigator.of(context).pop();
-                                    item.onTap?.call();
-                                  },
-                                  title: Text(
-                                    item.label,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(color: colors.ink),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: panelHeight - 12,
+                          ),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                for (final item in items)
+                                  SizedBox(
+                                    height: _itemHeight,
+                                    child: ListTile(
+                                      dense: true,
+                                      onTap: () {
+                                        Navigator.of(context).pop();
+                                        item.onTap?.call();
+                                      },
+                                      title: Text(
+                                        item.label,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(color: colors.ink),
+                                      ),
+                                      trailing: item.selected
+                                          ? Icon(
+                                              Icons.check_rounded,
+                                              size: 16,
+                                              color: colors.accentColor,
+                                            )
+                                          : null,
+                                    ),
                                   ),
-                                  trailing: item.selected
-                                      ? Icon(
-                                          Icons.check_rounded,
-                                          size: 16,
-                                          color: colors.accentColor,
-                                        )
-                                      : null,
-                                ),
-                              ),
-                          ],
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -611,12 +639,12 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     return FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: MukaiMotion.curve),
       child: ScaleTransition(
-        // Grows out of the kebab (and shrinks back into it on dismiss), so
-        // the panel reads as the pill unfurling rather than a new card.
+        // Grows out of the control (and shrinks back into it on dismiss), so
+        // the panel reads as the control unfurling rather than a new card.
         scale: Tween<double>(begin: .62, end: 1).animate(
           CurvedAnimation(parent: animation, curve: MukaiMotion.springy),
         ),
-        alignment: Alignment.topRight,
+        alignment: up ? Alignment.bottomRight : Alignment.topRight,
         child: child,
       ),
     );

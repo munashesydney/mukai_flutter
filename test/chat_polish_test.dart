@@ -246,6 +246,36 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('model picker drops up and swaps the chip', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: mukaiTheme(MukaiPreferences.defaults, Brightness.light),
+        home: Scaffold(
+          body: MukaiComposer(
+            botName: 'Mukai',
+            responding: false,
+            modelLabel: 'Workspace default',
+            modelOptions: const ['Workspace default', 'Claude Opus 4.5'],
+            onSend: (_) {},
+            onStop: () {},
+          ),
+        ),
+      ),
+    );
+    await frames(tester);
+    await tester.tap(find.text('Default model'));
+    await frames(tester);
+    // The panel opened over the composer; the chip collapsed while it is up.
+    expect(find.text('Claude Opus 4.5'), findsOneWidget);
+    await tester.tap(find.text('Claude Opus 4.5'));
+    await frames(tester);
+    // Selection landed, the panel dismissed, and the chip came back swapped.
+    expect(find.text('Workspace default'), findsNothing);
+    expect(find.text('Claude Opus 4.5'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('stop button keeps the desktop accent colors in both modes', (
     tester,
   ) async {
