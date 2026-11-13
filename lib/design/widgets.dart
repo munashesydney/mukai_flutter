@@ -404,6 +404,213 @@ class MukaiIconButton extends StatelessWidget {
   }
 }
 
+/// One row inside [MukaiGlassMenuButton].
+class MukaiGlassMenuItem {
+  const MukaiGlassMenuItem({
+    required this.label,
+    this.selected = false,
+    this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+}
+
+/// Dropdown menu on the same native glass as [MukaiGlassPill]: the panel is
+/// a [MukaiGlassSurface] (UIKit `UIGlassEffect`) with Flutter-drawn rows, so
+/// a header kebab and its menu read as one material family. Where native
+/// glass is unavailable the panel falls back to the standard card surface.
+class MukaiGlassMenuButton extends StatefulWidget {
+  const MukaiGlassMenuButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.items,
+    this.width = 190,
+    this.size = 44,
+  });
+
+  final String tooltip;
+  final Widget icon;
+  final List<MukaiGlassMenuItem> items;
+  final double width;
+  final double size;
+
+  @override
+  State<MukaiGlassMenuButton> createState() => _MukaiGlassMenuButtonState();
+}
+
+class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
+  final GlobalKey _anchor = GlobalKey();
+
+  void _open() {
+    if (widget.items.isEmpty) return;
+    final RenderBox? box =
+        _anchor.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    Navigator.of(context).push(
+      _MukaiGlassMenuRoute(
+        items: widget.items,
+        width: widget.width,
+        anchor: box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: PressableScale(
+        scale: 0.92,
+        onTap: _open,
+        child: SizedBox(
+          key: _anchor,
+          width: widget.size,
+          height: widget.size,
+          child: Center(child: widget.icon),
+        ),
+      ),
+    );
+  }
+}
+
+class _MukaiGlassMenuRoute extends PopupRoute<void> {
+  _MukaiGlassMenuRoute({
+    required this.items,
+    required this.width,
+    required this.anchor,
+  });
+
+  final List<MukaiGlassMenuItem> items;
+  final double width;
+  final Rect anchor;
+
+  static const double _radius = 18;
+  static const double _itemHeight = 44;
+
+  @override
+  Color get barrierColor => Colors.transparent;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  String get barrierLabel => 'Dismiss menu';
+
+  @override
+  Duration get transitionDuration => MukaiMotion.fast;
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    final MukaiColors colors = MukaiColors.of(context);
+    final Size screen = MediaQuery.sizeOf(context);
+    final double panelHeight = items.length * _itemHeight + 12;
+    // Opens under the anchor, right-aligned to it; flips above when the
+    // bottom edge runs out of room, then clamps inside the screen.
+    double top = anchor.bottom + 6;
+    if (top + panelHeight > screen.height - 12) {
+      top = anchor.top - 6 - panelHeight;
+    }
+    top = top.clamp(12.0, math.max(12.0, screen.height - panelHeight - 12));
+    double left = anchor.right - width;
+    if (left + width > screen.width - 12) left = screen.width - width - 12;
+    if (left < 12) left = 12;
+    return Stack(
+      children: <Widget>[
+        Positioned(
+          left: left,
+          top: top,
+          width: width,
+          child: MukaiGlassProbe(
+            builder: (BuildContext context, bool glass, Widget? _) =>
+                MukaiGlassSurface(
+                  cornerRadius: _radius,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(_radius),
+                      // On glass the material supplies the surface and edge.
+                      color: glass ? null : colors.card,
+                      border: glass
+                          ? null
+                          : Border.all(color: colors.hairlineStrong),
+                      boxShadow: glass
+                          ? null
+                          : MukaiShadows.card(colors.brightness),
+                    ),
+                    child: Material(
+                      // Transparent so ink responds while the native glass (or
+                      // the card fallback behind it) paints the surface.
+                      type: MaterialType.transparency,
+                      borderRadius: BorderRadius.circular(_radius),
+                      clipBehavior: Clip.antiAlias,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            for (final item in items)
+                              SizedBox(
+                                height: _itemHeight,
+                                child: ListTile(
+                                  dense: true,
+                                  onTap: () {
+                                    Navigator.of(context).pop();
+                                    item.onTap?.call();
+                                  },
+                                  title: Text(
+                                    item.label,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(color: colors.ink),
+                                  ),
+                                  trailing: item.selected
+                                      ? Icon(
+                                          Icons.check_rounded,
+                                          size: 16,
+                                          color: colors.accentColor,
+                                        )
+                                      : null,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return FadeTransition(
+      opacity: animation,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: .92, end: 1).animate(
+          CurvedAnimation(parent: animation, curve: MukaiMotion.springy),
+        ),
+        alignment: Alignment.topRight,
+        child: child,
+      ),
+    );
+  }
+}
+
 /// Labelled field with the accent focus ring.
 class MukaiField extends StatelessWidget {
   const MukaiField({

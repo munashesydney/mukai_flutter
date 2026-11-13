@@ -723,34 +723,26 @@ class _ChatHeader extends StatelessWidget {
         const MukaiGlassDivider(),
         // Run views live in a dropdown so the header stays a single glass
         // pill instead of a second floating row of chips.
-        PopupMenuButton<_ChatView>(
+        MukaiGlassMenuButton(
           tooltip: 'Switch view',
-          padding: EdgeInsets.zero,
-          style: IconButton.styleFrom(
-            minimumSize: const Size(44, 44),
-            maximumSize: const Size(44, 44),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          position: PopupMenuPosition.under,
           icon: Icon(
             Icons.more_horiz_rounded,
             size: 18,
             color: MukaiColors.of(context).textSecondary,
           ),
-          onSelected: (view) {
-            FocusManager.instance.primaryFocus?.unfocus();
-            onViewChanged!(view);
-          },
-          itemBuilder: (BuildContext context) => <PopupMenuEntry<_ChatView>>[
+          items: [
             for (final (view, label) in const [
               (_ChatView.chat, 'Chat'),
               (_ChatView.artifacts, 'Artifacts'),
               (_ChatView.outcome, 'Run outcome'),
             ])
-              CheckedPopupMenuItem<_ChatView>(
-                value: view,
-                checked: view == runView,
-                child: Text(label),
+              MukaiGlassMenuItem(
+                label: label,
+                selected: view == runView,
+                onTap: () {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  onViewChanged!(view);
+                },
               ),
           ],
         ),
