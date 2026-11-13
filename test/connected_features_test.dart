@@ -851,16 +851,34 @@ void main() {
         findsWidgets,
       );
       expect(find.byType(TextField), findsNothing);
-      await tester.tap(find.text('Run outcome'));
+      await tester.tap(find.byTooltip('Switch view'));
+      await _frames(tester);
+      await tester.tap(
+        find.ancestor(
+          of: find.text('Run outcome'),
+          matching: find.byType(ListTile),
+        ),
+      );
       await _frames(tester);
       expect(
         find.textContaining('A detailed report', findRichText: true),
         findsWidgets,
       );
-      await tester.tap(find.text('Artifacts'));
+      await tester.tap(find.byTooltip('Switch view'));
+      await _frames(tester);
+      await tester.tap(
+        find.ancestor(
+          of: find.text('Artifacts'),
+          matching: find.byType(ListTile),
+        ),
+      );
       await _frames(tester);
       expect(find.text('No artifacts in this run yet.'), findsOneWidget);
-      await tester.tap(find.text('Chat'));
+      await tester.tap(find.byTooltip('Switch view'));
+      await _frames(tester);
+      await tester.tap(
+        find.ancestor(of: find.text('Chat'), matching: find.byType(ListTile)),
+      );
       await tester.pump();
       await tester.tap(find.text('Jump in the chat'));
       await _frames(tester);

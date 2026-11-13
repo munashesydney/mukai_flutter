@@ -398,9 +398,20 @@ void main() {
       () => find.text('Jump in the chat').evaluate().isNotEmpty,
     );
     await capture(tester, 'run-conversation-dark');
-    await tap(tester, find.text('Run outcome'));
+    await tap(tester, find.byTooltip('Switch view'));
+    await tap(
+      tester,
+      find.ancestor(
+        of: find.text('Run outcome'),
+        matching: find.byType(ListTile),
+      ),
+    );
     await capture(tester, 'run-summary-dark');
-    await tap(tester, find.text('Chat'));
+    await tap(tester, find.byTooltip('Switch view'));
+    await tap(
+      tester,
+      find.ancestor(of: find.text('Chat'), matching: find.byType(ListTile)),
+    );
     await tap(tester, find.text('Jump in the chat'));
     await tester.enterText(
       find.byType(TextField).first,

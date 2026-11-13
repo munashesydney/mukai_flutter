@@ -456,38 +456,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         onMenu: widget.onMenu,
                         onNewChat: widget.onNewChat,
                         onRunHistory: run?.onHistory,
+                        runView: run == null ? null : _view,
+                        onViewChanged: run == null
+                            ? null
+                            : (view) {
+                                FocusManager.instance.primaryFocus?.unfocus();
+                                setState(() => _view = view);
+                              },
                       ),
-                      if (run != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: MukaiSpace.screen,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            children: [
-                              for (final (view, label) in [
-                                (_ChatView.chat, 'Chat'),
-                                (_ChatView.artifacts, 'Artifacts'),
-                                (_ChatView.outcome, 'Run outcome'),
-                              ])
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: Text(
-                                      label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    selected: _view == view,
-                                    onSelected: (_) {
-                                      FocusManager.instance.primaryFocus
-                                          ?.unfocus();
-                                      setState(() => _view = view);
-                                    },
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
                       if (session.hasError)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(
@@ -594,12 +570,45 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: canJoin
-                                ? OutlinedButton.icon(
-                                    onPressed: widget.onJoin,
-                                    icon: const Icon(
-                                      Icons.chat_bubble_outline_rounded,
-                                    ),
-                                    label: const Text('Jump in the chat'),
+                                ? MukaiGlassProbe(
+                                    builder:
+                                        (
+                                          BuildContext context,
+                                          bool glass,
+                                          Widget? _,
+                                        ) => MukaiGlassSurface(
+                                          cornerRadius: 23,
+                                          child: Container(
+                                            height: 46,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                            ),
+                                            // On glass the material supplies the
+                                            // edge; elsewhere draw the outline.
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(23),
+                                              border: glass
+                                                  ? null
+                                                  : Border.all(
+                                                      color: MukaiColors.of(
+                                                        context,
+                                                      ).hairlineStrong,
+                                                    ),
+                                            ),
+                                            child: TextButton.icon(
+                                              onPressed: widget.onJoin,
+                                              icon: const Icon(
+                                                Icons
+                                                    .chat_bubble_outline_rounded,
+                                                size: 17,
+                                              ),
+                                              label: const Text(
+                                                'Jump in the chat',
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                   )
                                 : const Text('Pursuit run · read only'),
                           ),
@@ -666,6 +675,8 @@ class _ChatHeader extends StatelessWidget {
     this.onMenu,
     this.onNewChat,
     this.onRunHistory,
+    this.runView,
+    this.onViewChanged,
   });
 
   final MukaiBot bot;
@@ -674,6 +685,8 @@ class _ChatHeader extends StatelessWidget {
   final VoidCallback? onMenu;
   final VoidCallback? onNewChat;
   final VoidCallback? onRunHistory;
+  final _ChatView? runView;
+  final ValueChanged<_ChatView>? onViewChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -704,6 +717,42 @@ class _ChatHeader extends StatelessWidget {
           tooltip: 'Close run',
           border: false,
           onTap: onRunHistory,
+        ),
+      ],
+      if (onViewChanged != null) ...<Widget>[
+        const MukaiGlassDivider(),
+        // Run views live in a dropdown so the header stays a single glass
+        // pill instead of a second floating row of chips.
+        PopupMenuButton<_ChatView>(
+          tooltip: 'Switch view',
+          padding: EdgeInsets.zero,
+          style: IconButton.styleFrom(
+            minimumSize: const Size(44, 44),
+            maximumSize: const Size(44, 44),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          position: PopupMenuPosition.under,
+          icon: Icon(
+            Icons.more_horiz_rounded,
+            size: 18,
+            color: MukaiColors.of(context).textSecondary,
+          ),
+          onSelected: (view) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            onViewChanged!(view);
+          },
+          itemBuilder: (BuildContext context) => <PopupMenuEntry<_ChatView>>[
+            for (final (view, label) in const [
+              (_ChatView.chat, 'Chat'),
+              (_ChatView.artifacts, 'Artifacts'),
+              (_ChatView.outcome, 'Run outcome'),
+            ])
+              CheckedPopupMenuItem<_ChatView>(
+                value: view,
+                checked: view == runView,
+                child: Text(label),
+              ),
+          ],
         ),
       ],
     ];
