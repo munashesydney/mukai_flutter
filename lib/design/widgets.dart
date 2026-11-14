@@ -487,6 +487,11 @@ class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
         anchor: box.localToGlobal(Offset.zero) & box.size,
         up: widget.up,
         alignStart: widget.alignStart,
+        // The composer scaffold consumes its keyboard inset. Read it from
+        // the view so an upward picker can leave the text field focused.
+        requestFocus: widget.up && View.of(context).viewInsets.bottom > 0
+            ? false
+            : null,
         // A subtle dim behind the panel: the background recedes as one
         // surface, so the hidden background glass reads as the modal
         // receding rather than a control that lost its material.
@@ -524,6 +529,7 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     this.up = false,
     this.alignStart = false,
     this.barrier = Colors.transparent,
+    super.requestFocus,
   });
 
   final List<MukaiGlassMenuItem> items;
@@ -560,11 +566,22 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
   ) {
     final MukaiColors colors = MukaiColors.of(context);
     final Size screen = MediaQuery.sizeOf(context);
+    final double keyboardInset = up
+        ? MediaQuery.viewInsetsOf(context).bottom
+        : 0;
+    final bool aboveKeyboard = keyboardInset > 0;
+    final double topEdge = aboveKeyboard
+        ? math.max(12.0, MediaQuery.paddingOf(context).top)
+        : 12.0;
+    final double bottomEdge = screen.height - keyboardInset - 12;
+    final double panelBottom = aboveKeyboard
+        ? math.min(anchor.bottom + 2, bottomEdge)
+        : bottomEdge;
     final double panelHeight = math.min(
-      items.fold<double>(0, (double sum, item) => sum + _rowHeight(item)) +
-          12,
-      screen.height - 24,
+      items.fold<double>(0, (double sum, item) => sum + _rowHeight(item)) + 12,
+      panelBottom - topEdge,
     );
+    if (panelHeight <= 12) return const SizedBox.shrink();
     // The panel starts where the control was: for a header menu the
     // top-right corner pins to the pill's corner and the panel unfurls
     // down-left; for a bottom-anchored control (drop-up) the bottom-right
@@ -573,12 +590,12 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     double top;
     if (up) {
       top = anchor.bottom + 2 - panelHeight;
-      if (top < 12) top = anchor.top + 6;
+      if (top < topEdge && !aboveKeyboard) top = anchor.top + 6;
     } else {
       top = anchor.top - 2;
-      if (top + panelHeight > screen.height - 12) top = anchor.bottom + 6;
+      if (top + panelHeight > bottomEdge) top = anchor.bottom + 6;
     }
-    top = top.clamp(12.0, math.max(12.0, screen.height - panelHeight - 12));
+    top = top.clamp(topEdge, math.max(topEdge, bottomEdge - panelHeight));
     // Start-aligned panels pin to the control's leading edge so they cover
     // exactly what was tapped (wide pickers whose label sits on the left).
     double left = alignStart

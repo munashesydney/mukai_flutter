@@ -44,6 +44,13 @@ class SidebarCanvasState extends State<SidebarCanvas>
     _settle(speed.abs() > 400 ? speed > 0 : _motion.value > .45);
   }
 
+  void _cancelDrag() {
+    // A tap can reject the drag before it moves the sidebar.
+    if (!_motion.isAnimating && _motion.value != (_open ? 1 : 0)) {
+      _settle(_open);
+    }
+  }
+
   @override
   void dispose() {
     _motion.dispose();
@@ -68,7 +75,7 @@ class SidebarCanvasState extends State<SidebarCanvas>
               behavior: HitTestBehavior.translucent,
               onHorizontalDragUpdate: _drag,
               onHorizontalDragEnd: _finish,
-              onHorizontalDragCancel: () => _settle(_open),
+              onHorizontalDragCancel: _cancelDrag,
               child: AnimatedBuilder(
                 animation: _motion,
                 // Keep the native glass and Flutter content in the same

@@ -251,4 +251,66 @@ void main() {
     expect(find.byType(ChatScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('companion picker stays above the focused composer', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    final appearance = AppearanceController();
+    final session = SessionController(
+      MukaiDemoRepository(latency: Duration.zero),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+      appearance.dispose();
+    });
+    await tester.pumpWidget(
+      MukaiScope(
+        appearance: appearance,
+        session: session,
+        child: MaterialApp(
+          theme: mukaiTheme(appearance.preferences, Brightness.light),
+          home: const HomeShell(),
+        ),
+      ),
+    );
+    await tick(tester);
+
+    final field = find.byType(TextField);
+    await tester.enterText(field, 'Draft message');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 338);
+    await tick(tester);
+    final focus = tester.widget<TextField>(field).focusNode!;
+    expect(focus.hasPrimaryFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    final picker = find.byTooltip('Choose a companion');
+    final pickerBottom = tester.getBottomLeft(picker).dy;
+    await tester.tap(picker);
+    await tick(tester);
+
+    expect(focus.hasPrimaryFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+    final atlas = find.widgetWithText(ListTile, 'Atlas').hitTestable();
+    expect(atlas, findsOneWidget);
+    expect(tester.getBottomLeft(atlas).dy, lessThan(pickerBottom));
+
+    await tester.tapAt(const Offset(5, 120));
+    await tick(tester);
+    expect(atlas, findsNothing);
+    expect(focus.hasPrimaryFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+    expect(tester.widget<TextField>(field).controller!.text, 'Draft message');
+
+    await tester.tap(picker);
+    await tick(tester);
+    await tester.tap(atlas);
+    await tick(tester);
+    expect(session.bot.name, 'Atlas');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }
