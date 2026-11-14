@@ -408,11 +408,19 @@ class MukaiIconButton extends StatelessWidget {
 class MukaiGlassMenuItem {
   const MukaiGlassMenuItem({
     required this.label,
+    this.subtitle,
+    this.leading,
     this.selected = false,
     this.onTap,
   });
 
   final String label;
+
+  /// Optional second line under [label]; the row grows taller to fit it.
+  final String? subtitle;
+
+  /// Optional widget before [label] — a bot mascot, an icon.
+  final Widget? leading;
   final bool selected;
   final VoidCallback? onTap;
 }
@@ -431,6 +439,7 @@ class MukaiGlassMenuButton extends StatefulWidget {
     this.size = 44,
     this.expandWidth = false,
     this.up = false,
+    this.alignStart = false,
     this.onOpenChanged,
   });
 
@@ -447,6 +456,11 @@ class MukaiGlassMenuButton extends StatefulWidget {
   /// Open upward — for controls anchored at the bottom of the screen, like
   /// the composer's model picker.
   final bool up;
+
+  /// Pin the panel to the control's leading edge (and unfurl from it) instead
+  /// of the default trailing edge. For wide triggers whose label sits on the
+  /// left, like the companion picker.
+  final bool alignStart;
 
   /// Reports open/dismissed so the surrounding control can get out of the
   /// way while the panel is up, selling the "pill turns into the panel"
@@ -472,6 +486,7 @@ class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
         width: widget.width,
         anchor: box.localToGlobal(Offset.zero) & box.size,
         up: widget.up,
+        alignStart: widget.alignStart,
       ),
     );
     if (mounted) widget.onOpenChanged?.call(false);
@@ -501,15 +516,21 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     required this.width,
     required this.anchor,
     this.up = false,
+    this.alignStart = false,
   });
 
   final List<MukaiGlassMenuItem> items;
   final double width;
   final Rect anchor;
   final bool up;
+  final bool alignStart;
 
   static const double _radius = 18;
   static const double _itemHeight = 44;
+  static const double _tallItemHeight = 58;
+
+  double _rowHeight(MukaiGlassMenuItem item) =>
+      item.subtitle == null ? _itemHeight : _tallItemHeight;
 
   @override
   Color get barrierColor => Colors.transparent;
@@ -532,7 +553,8 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     final MukaiColors colors = MukaiColors.of(context);
     final Size screen = MediaQuery.sizeOf(context);
     final double panelHeight = math.min(
-      items.length * _itemHeight + 12,
+      items.fold<double>(0, (double sum, item) => sum + _rowHeight(item)) +
+          12,
       screen.height - 24,
     );
     // The panel starts where the control was: for a header menu the
@@ -549,7 +571,11 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
       if (top + panelHeight > screen.height - 12) top = anchor.bottom + 6;
     }
     top = top.clamp(12.0, math.max(12.0, screen.height - panelHeight - 12));
-    double left = anchor.right + 4 - width;
+    // Start-aligned panels pin to the control's leading edge so they cover
+    // exactly what was tapped (wide pickers whose label sits on the left).
+    double left = alignStart
+        ? anchor.left - 4
+        : anchor.right + 4 - width;
     if (left + width > screen.width - 12) left = screen.width - width - 12;
     if (left < 12) left = 12;
     return Stack(
@@ -592,20 +618,60 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
                               children: <Widget>[
                                 for (final item in items)
                                   SizedBox(
-                                    height: _itemHeight,
+                                    height: _rowHeight(item),
                                     child: ListTile(
                                       dense: true,
+                                      minLeadingWidth: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 0,
+                                      ),
+                                      leading: item.leading == null
+                                          ? null
+                                          : Padding(
+                                              padding: const EdgeInsets.only(
+                                                right: 4,
+                                              ),
+                                              child: item.leading,
+                                            ),
                                       onTap: () {
                                         Navigator.of(context).pop();
                                         item.onTap?.call();
                                       },
                                       title: Text(
                                         item.label,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodyMedium
-                                            ?.copyWith(color: colors.ink),
+                                            ?.copyWith(
+                                              color: colors.ink,
+                                              height: 1.25,
+                                            ),
                                       ),
+                                      subtitle: item.subtitle == null
+                                          ? null
+                                          : Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 2,
+                                              ),
+                                              child: Text(
+                                                item.subtitle!,
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .labelSmall
+                                                    ?.copyWith(
+                                                      color: colors.textMuted,
+                                                    ),
+                                              ),
+                                            ),
                                       trailing: item.selected
                                           ? Icon(
                                               Icons.check_rounded,
@@ -644,7 +710,9 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
         scale: Tween<double>(begin: .62, end: 1).animate(
           CurvedAnimation(parent: animation, curve: MukaiMotion.springy),
         ),
-        alignment: up ? Alignment.bottomRight : Alignment.topRight,
+        alignment: alignStart
+            ? (up ? Alignment.bottomLeft : Alignment.topLeft)
+            : (up ? Alignment.bottomRight : Alignment.topRight),
         child: child,
       ),
     );

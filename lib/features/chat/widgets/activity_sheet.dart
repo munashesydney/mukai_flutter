@@ -136,6 +136,8 @@ class ActivitySheet extends StatelessWidget {
                     body:
                         'Bots, links, outputs and changes from this run will '
                         'collect here.',
+                    mascot: Mascot.logo,
+                    identity: BotIdentity.mukai,
                   ),
                 ),
             ],

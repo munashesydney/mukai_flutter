@@ -303,17 +303,18 @@ class _ChatScreenState extends State<ChatScreen> {
                                     strokeWidth: 2.4,
                                   ),
                                 )
-                              else if (thread.isEmpty)
+                              else if (thread.isEmpty && run != null)
                                 MukaiEmptyState(
-                                  title: run == null
-                                      ? 'A fresh start with ${bot.name}.'
-                                      : 'The run chat starts here.',
-                                  body: run == null
-                                      ? 'Bring a question, an idea, or something you’d like to move forward.'
-                                      : 'Messages will appear as your companion works.',
+                                  title: 'The run chat starts here.',
+                                  body:
+                                      'Messages will appear as your companion works.',
                                   mascot: bot.mascot,
                                   identity: bot.identity,
                                 )
+                              else if (thread.isEmpty)
+                                // The minimalist main page stays bare: an
+                                // empty thread is just the open canvas.
+                                const SizedBox.shrink()
                               else
                                 Align(
                                   alignment: Alignment.topCenter,

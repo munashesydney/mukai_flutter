@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'sidebar_canvas.dart';
 
 import '../design/appearance.dart';
+import '../design/theme.dart';
 import '../core/push_notifications.dart';
 import '../design/glass.dart';
 import '../design/widgets.dart';
@@ -251,31 +252,45 @@ class _HomeShellState extends State<HomeShell> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const SheetGrabber(label: 'Your workspaces'),
-                  for (final workspace in session.workspaces)
-                    MukaiRow(
-                      key: ValueKey('workspace-picker-${workspace.id}'),
-                      title: workspace.name,
-                      subtitle: workspace.kind,
-                      selected: workspace.id == session.workspace.id,
-                      trailing:
-                          session.workingWorkspaceIds.contains(workspace.id)
-                          ? const BouncingDots()
-                          : null,
-                      onTap: () async {
-                        _chatNavigation++;
-                        Navigator.pop(context);
-                        _canvas.currentState?.close();
-                        await session.selectWorkspace(workspace.id);
-                        if (mounted) {
-                          setState(() {
-                            _bot = null;
-                            _run = null;
-                            _index = 0;
-                          });
-                        }
-                      },
+                  const SizedBox(height: MukaiSpace.md),
+                  // Inset the rows so the selected row's rounded highlight
+                  // doesn't sit flush against the sheet edges.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: MukaiSpace.sm,
                     ),
-                  const SizedBox(height: 20),
+                    child: Column(
+                      children: [
+                        for (final workspace in session.workspaces)
+                          MukaiRow(
+                            key: ValueKey('workspace-picker-${workspace.id}'),
+                            title: workspace.name,
+                            subtitle: workspace.kind,
+                            selected: workspace.id == session.workspace.id,
+                            trailing:
+                                session.workingWorkspaceIds.contains(
+                                  workspace.id,
+                                )
+                                ? const BouncingDots()
+                                : null,
+                            onTap: () async {
+                              _chatNavigation++;
+                              Navigator.pop(context);
+                              _canvas.currentState?.close();
+                              await session.selectWorkspace(workspace.id);
+                              if (mounted) {
+                                setState(() {
+                                  _bot = null;
+                                  _run = null;
+                                  _index = 0;
+                                });
+                              }
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: MukaiSpace.xl),
                 ],
               ),
             ),

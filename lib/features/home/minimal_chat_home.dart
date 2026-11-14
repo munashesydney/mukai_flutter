@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
 import '../../design/appearance.dart';
+import '../../design/theme.dart';
 import '../../design/widgets.dart';
 import '../../domain/models.dart';
 import '../chat/chat_screen.dart';
@@ -63,7 +64,7 @@ class _MinimalChatHomeState extends State<MinimalChatHome> {
   }
 }
 
-class _Pickers extends StatelessWidget {
+class _Pickers extends StatefulWidget {
   const _Pickers({
     required this.bot,
     required this.bots,
@@ -79,56 +80,92 @@ class _Pickers extends StatelessWidget {
   final VoidCallback? onSwitchWorkspace;
 
   @override
+  State<_Pickers> createState() => _PickersState();
+}
+
+class _PickersState extends State<_Pickers> {
+  bool _botMenuOpen = false;
+
+  @override
   Widget build(BuildContext context) {
     final MukaiColors colors = MukaiColors.of(context);
+    final MukaiBot bot = widget.bot;
     const label = TextStyle(fontSize: 12.5, color: null);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          MukaiGlassMenuButton(
-            tooltip: 'Choose a companion',
-            up: true,
-            expandWidth: true,
-            width: 250,
-            size: 30,
-            icon: Row(
-              children: [
-                GhostAvatar(
-                  mascot: bot.mascot,
-                  identity: bot.identity,
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    bot.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: label.copyWith(color: colors.textMuted),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) =>
+                MukaiGlassMenuButton(
+              tooltip: 'Choose a companion',
+              up: true,
+              // Cover the row that was tapped: the panel matches its width and
+              // pins to its leading edge, like the composer's pickers.
+              alignStart: true,
+              expandWidth: true,
+              width: constraints.maxWidth,
+              size: 30,
+              onOpenChanged: (open) {
+                if (mounted) setState(() => _botMenuOpen = open);
+              },
+              icon: IgnorePointer(
+                ignoring: _botMenuOpen,
+                // The panel unfurls over the row, so the row steps aside.
+                child: AnimatedScale(
+                  scale: _botMenuOpen ? .8 : 1,
+                  duration: MukaiMotion.fast,
+                  curve: MukaiMotion.curve,
+                  child: AnimatedOpacity(
+                    opacity: _botMenuOpen ? 0 : 1,
+                    duration: MukaiMotion.fast,
+                    curve: MukaiMotion.curve,
+                    child: Row(
+                      children: [
+                        GhostAvatar(
+                          mascot: bot.mascot,
+                          identity: bot.identity,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            bot.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: label.copyWith(color: colors.textMuted),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.swap_vert_rounded,
+                          size: 15,
+                          color: colors.textMuted,
+                        ),
+                        const Spacer(),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.swap_vert_rounded,
-                  size: 15,
-                  color: colors.textMuted,
-                ),
-                const Spacer(),
+              ),
+              items: [
+                for (final candidate in widget.bots)
+                  MukaiGlassMenuItem(
+                    label: candidate.name,
+                    leading: GhostAvatar(
+                      mascot: candidate.mascot,
+                      identity: candidate.identity,
+                      size: 22,
+                    ),
+                    selected: candidate.id == bot.id,
+                    onTap: () => widget.onSelectBot(candidate.id),
+                  ),
               ],
             ),
-            items: [
-              for (final candidate in bots)
-                MukaiGlassMenuItem(
-                  label: candidate.name,
-                  selected: candidate.id == bot.id,
-                  onTap: () => onSelectBot(candidate.id),
-                ),
-            ],
           ),
           PressableScale(
-            onTap: onSwitchWorkspace,
+            onTap: widget.onSwitchWorkspace,
             borderRadius: BorderRadius.circular(14),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
@@ -142,7 +179,7 @@ class _Pickers extends StatelessWidget {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      workspaceName,
+                      widget.workspaceName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: label.copyWith(color: colors.textMuted),

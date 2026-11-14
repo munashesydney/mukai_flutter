@@ -397,13 +397,30 @@ class _ModelPickerState extends State<_ModelPicker> {
   String _shorten(String value) =>
       value.length <= 16 ? value : '${value.substring(0, 15)}…';
 
+  /// `"OMLX / Qwen3.8-Flash-Next"` reads as provider + model; show the model
+  /// name as the row label and the provider as a quiet subtitle so long IDs
+  /// get the full row width instead of wrapping mid-token.
+  static String _modelName(String option) {
+    final int slash = option.indexOf(' / ');
+    return slash < 0 ? option : option.substring(slash + 3).trim();
+  }
+
+  static String? _modelProvider(String option) {
+    final int slash = option.indexOf(' / ');
+    return slash < 0 ? null : option.substring(0, slash).trim();
+  }
+
   @override
   Widget build(BuildContext context) {
     final MukaiColors colors = MukaiColors.of(context);
     final String model = widget.model;
+    // Give the panel room to breathe: as wide as it can be on small phones,
+    // capped so it still reads as a menu on larger screens.
+    final double screenWidth = MediaQuery.sizeOf(context).width;
+    final double menuWidth = screenWidth < 436 ? screenWidth - 64 : 372;
     return MukaiGlassMenuButton(
       tooltip: model,
-      width: 220,
+      width: menuWidth,
       expandWidth: true,
       up: true,
       onOpenChanged: (open) {
@@ -454,7 +471,8 @@ class _ModelPickerState extends State<_ModelPicker> {
       items: [
         for (final String option in widget.options)
           MukaiGlassMenuItem(
-            label: option,
+            label: _modelName(option),
+            subtitle: _modelProvider(option),
             selected: option == model,
             onTap: () => widget.onChanged(option),
           ),
