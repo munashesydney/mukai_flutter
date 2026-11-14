@@ -298,11 +298,10 @@ class _ChatScreenState extends State<ChatScreen> {
                             fit: StackFit.expand,
                             children: <Widget>[
                               if (session.loadingThreads)
-                                const Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.4,
-                                  ),
-                                )
+                                // No spinner while threads load: the page
+                                // simply stays the bare canvas, then fills
+                                // with the conversation when it arrives.
+                                const SizedBox.shrink()
                               else if (thread.isEmpty && run != null)
                                 MukaiEmptyState(
                                   title: 'The run chat starts here.',
