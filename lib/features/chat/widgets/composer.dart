@@ -190,8 +190,7 @@ class _MukaiComposerState extends State<MukaiComposer> {
         builder: (BuildContext context, bool glass, Widget? _) =>
             MukaiGlassSurface(
               cornerRadius: 26,
-              child: AnimatedContainer(
-                duration: MukaiMotion.fast,
+              child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
                 decoration: BoxDecoration(
                   // On glass the material itself supplies depth and edges.
@@ -250,6 +249,7 @@ class _MukaiComposerState extends State<MukaiComposer> {
                         isDense: true,
                         contentPadding: const EdgeInsets.fromLTRB(2, 14, 8, 14),
                         border: InputBorder.none,
+                        disabledBorder: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
                         hintText: widget.responding && widget.allowQueue

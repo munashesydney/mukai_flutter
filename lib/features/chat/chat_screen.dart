@@ -81,6 +81,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scroll = ScrollController();
+  bool _openingThread = true;
   bool _showJump = false;
   bool _joiningReference = false;
   bool _runMenuOpen = false;
@@ -98,18 +99,18 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        MukaiScope.sessionOf(context).openBot(
-          widget.bot.id,
-          conversationId: widget.conversationId,
-          fresh: widget.fresh,
-          space: widget.kind == 'space',
-          viewOnly:
-              widget.kind == 'pursuit_run' &&
-              (widget.run == null || widget.bot.id.isEmpty),
-        );
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await MukaiScope.sessionOf(context).openBot(
+        widget.bot.id,
+        conversationId: widget.conversationId,
+        fresh: widget.fresh,
+        space: widget.kind == 'space',
+        viewOnly:
+            widget.kind == 'pursuit_run' &&
+            (widget.run == null || widget.bot.id.isEmpty),
+      );
+      if (mounted) setState(() => _openingThread = false);
     });
   }
 
@@ -634,7 +635,9 @@ class _ChatScreenState extends State<ChatScreen> {
                           bottom: true,
                           child: MukaiComposer(
                             key: ValueKey(session.draftKey),
-                            enabled: !session.loadingThreads,
+                            // Opening the thread starts after the first frame.
+                            // Wait for it before allowing composer autofocus.
+                            enabled: !_openingThread && !session.loadingThreads,
                             autofocus: widget.fresh,
                             botName: widget.kind == 'space'
                                 ? (widget.title ?? 'Space')

@@ -252,6 +252,69 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('launch opens the keyboard once the chat is ready', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    final appearance = AppearanceController();
+    final session = SessionController(MukaiDemoRepository());
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+      appearance.dispose();
+    });
+    await tester.pumpWidget(
+      MukaiScope(
+        appearance: appearance,
+        session: session,
+        child: MaterialApp(
+          theme: mukaiTheme(appearance.preferences, Brightness.light),
+          home: const HomeShell(),
+        ),
+      ),
+    );
+
+    final field = find.byType(TextField);
+    final keyboardRequests = tester.testTextInput.log
+        .map((call) => call.method)
+        .where(
+          (method) => method == 'TextInput.show' || method == 'TextInput.hide',
+        );
+    await tester.pump();
+    expect(session.loadingThreads, isTrue);
+    expect(keyboardRequests, isEmpty);
+    final disabledDecoration = tester
+        .widget<InputDecorator>(
+          find.descendant(of: field, matching: find.byType(InputDecorator)),
+        )
+        .decoration;
+    expect(disabledDecoration.disabledBorder, InputBorder.none);
+
+    await tick(tester);
+    expect(tester.widget<TextField>(field).focusNode!.hasPrimaryFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    const keyboardTop = 536.0;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 338);
+    await tester.pump();
+    expect(
+      tester.getBottomRight(find.byTooltip('Send message')).dy,
+      lessThanOrEqualTo(keyboardTop),
+    );
+    expect(keyboardRequests, contains('TextInput.show'));
+    expect(keyboardRequests, isNot(contains('TextInput.hide')));
+    expect(
+      tester.testTextInput.log.where(
+        (call) => call.method == 'TextInput.setClient',
+      ),
+      hasLength(1),
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('companion picker stays above the focused composer', (
     tester,
   ) async {

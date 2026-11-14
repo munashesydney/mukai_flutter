@@ -123,45 +123,50 @@ class MukaiGlassSurface extends StatelessWidget {
       future: MukaiGlass.available,
       initialData: false,
       builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
-        if (snapshot.data != true) return content;
+        final bool glass = snapshot.data == true;
         // The native view cannot read the Flutter theme; hand it the
         // brightness so light mode gets light glass even when the system
         // disagrees with the app's forced mode.
         final bool isDark = MukaiColors.of(context).isDark;
-        MukaiGlass.syncAppearance(isDark: isDark);
+        if (glass) MukaiGlass.syncAppearance(isDark: isDark);
         // Keep one platform view alive through sidebar drags and settling.
         // Replacing it with a painted blur destroys the native effect and
         // flashes when UIKit creates the replacement view.
         return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(cornerRadius),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? .18 : .08),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
+            boxShadow: glass
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? .18 : .08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Stack(
+            // Keep the content mounted when the native material becomes
+            // available so a focused text field keeps its input connection.
             children: <Widget>[
-              Positioned.fill(
-                // Native backdrop views can punch through Flutter modal
-                // overlays. Omit them from composition while this route is
-                // covered, without disposing and recreating their UIKit views.
-                child: MukaiGlassVisibility(
-                  child: UiKitView(
-                    viewType: 'mukai/glass_pill',
-                    hitTestBehavior: PlatformViewHitTestBehavior.transparent,
-                    creationParams: <String, Object?>{
-                      'cornerRadius': cornerRadius,
-                      'dark': isDark,
-                    },
-                    creationParamsCodec: const StandardMessageCodec(),
+              if (glass)
+                Positioned.fill(
+                  // Native backdrop views can punch through Flutter modal
+                  // overlays. Omit them from composition while this route is
+                  // covered, without recreating their UIKit views.
+                  child: MukaiGlassVisibility(
+                    child: UiKitView(
+                      viewType: 'mukai/glass_pill',
+                      hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+                      creationParams: <String, Object?>{
+                        'cornerRadius': cornerRadius,
+                        'dark': isDark,
+                      },
+                      creationParamsCodec: const StandardMessageCodec(),
+                    ),
                   ),
                 ),
-              ),
-              content,
+              KeyedSubtree(key: const ValueKey('content'), child: content),
             ],
           ),
         );
