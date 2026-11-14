@@ -487,6 +487,12 @@ class _MukaiGlassMenuButtonState extends State<MukaiGlassMenuButton> {
         anchor: box.localToGlobal(Offset.zero) & box.size,
         up: widget.up,
         alignStart: widget.alignStart,
+        // A subtle dim behind the panel: the background recedes as one
+        // surface, so the hidden background glass reads as the modal
+        // receding rather than a control that lost its material.
+        barrier: Colors.black.withValues(
+          alpha: MukaiColors.of(context).isDark ? .38 : .22,
+        ),
       ),
     );
     if (mounted) widget.onOpenChanged?.call(false);
@@ -517,6 +523,7 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
     required this.anchor,
     this.up = false,
     this.alignStart = false,
+    this.barrier = Colors.transparent,
   });
 
   final List<MukaiGlassMenuItem> items;
@@ -524,6 +531,7 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
   final Rect anchor;
   final bool up;
   final bool alignStart;
+  final Color barrier;
 
   static const double _radius = 18;
   static const double _itemHeight = 44;
@@ -533,7 +541,7 @@ class _MukaiGlassMenuRoute extends PopupRoute<void> {
       item.subtitle == null ? _itemHeight : _tallItemHeight;
 
   @override
-  Color get barrierColor => Colors.transparent;
+  Color get barrierColor => barrier;
 
   @override
   bool get barrierDismissible => true;
