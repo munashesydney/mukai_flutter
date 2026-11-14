@@ -330,48 +330,51 @@ class _MukaiComposerState extends State<MukaiComposer> {
   }
 }
 
-class _ModePicker extends StatelessWidget {
+class _ModePicker extends StatefulWidget {
   const _ModePicker({required this.mode, required this.onChanged});
   final ApprovalMode mode;
   final ValueChanged<ApprovalMode> onChanged;
 
   @override
+  State<_ModePicker> createState() => _ModePickerState();
+}
+
+class _ModePickerState extends State<_ModePicker> {
+  bool _open = false;
+
+  @override
   Widget build(BuildContext context) {
     final MukaiColors colors = MukaiColors.of(context);
+    final ApprovalMode mode = widget.mode;
     final bool full = mode == ApprovalMode.fullAccess;
     final Color tint = full ? const Color(0xFFCA7331) : colors.textSecondary;
 
-    return MenuAnchor(
-      menuChildren: <Widget>[
+    return MukaiGlassMenuButton(
+      tooltip: mode.label,
+      up: true,
+      alignStart: true,
+      width: 210,
+      onOpenChanged: (open) => setState(() => _open = open),
+      icon: AnimatedScale(
+        scale: _open ? .8 : 1,
+        duration: MukaiMotion.fast,
+        curve: MukaiMotion.curve,
+        child: AnimatedOpacity(
+          opacity: _open ? 0 : 1,
+          duration: MukaiMotion.fast,
+          curve: MukaiMotion.curve,
+          child: Icon(mode.icon, size: 19, color: tint),
+        ),
+      ),
+      items: [
         for (final ApprovalMode option in ApprovalMode.values)
-          MenuItemButton(
-            leadingIcon: Icon(option.icon, size: 16),
-            onPressed: () => onChanged(option),
-            child: Text(option.label),
+          MukaiGlassMenuItem(
+            label: option.label,
+            leading: Icon(option.icon, size: 16, color: colors.textSecondary),
+            selected: option == mode,
+            onTap: () => widget.onChanged(option),
           ),
       ],
-      builder:
-          (BuildContext context, MenuController controller, Widget? child) {
-            return PressableScale(
-              scale: 0.94,
-              onTap: () {
-                Haptics.select();
-                if (controller.isOpen) {
-                  controller.close();
-                } else {
-                  controller.open();
-                }
-              },
-              child: Tooltip(
-                message: mode.label,
-                child: SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Icon(mode.icon, size: 19, color: tint),
-                ),
-              ),
-            );
-          },
     );
   }
 }

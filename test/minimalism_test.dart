@@ -6,6 +6,7 @@ import 'package:mukai_flutter/app/home_shell.dart';
 import 'package:mukai_flutter/app/scope.dart';
 import 'package:mukai_flutter/data/demo/demo_repository.dart';
 import 'package:mukai_flutter/design/appearance.dart';
+import 'package:mukai_flutter/design/glass.dart';
 import 'package:mukai_flutter/design/theme.dart';
 import 'package:mukai_flutter/domain/models.dart';
 import 'package:mukai_flutter/features/chat/chat_screen.dart';
@@ -313,6 +314,66 @@ void main() {
       ),
       hasLength(1),
     );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('permissions drop-up uses glass and keeps the keyboard open', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetViewInsets);
+    final appearance = AppearanceController();
+    final session = SessionController(
+      MukaiDemoRepository(latency: Duration.zero),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+      appearance.dispose();
+    });
+    await tester.pumpWidget(
+      MukaiScope(
+        appearance: appearance,
+        session: session,
+        child: MaterialApp(
+          theme: mukaiTheme(appearance.preferences, Brightness.light),
+          home: const HomeShell(),
+        ),
+      ),
+    );
+    await tick(tester);
+
+    final field = find.byType(TextField);
+    final focus = tester.widget<TextField>(field).focusNode!;
+    expect(focus.hasPrimaryFocus, isTrue);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tick(tester);
+
+    final picker = find.byTooltip('Full access');
+    final pickerTop = tester.getTopLeft(picker).dy;
+    await tester.tap(picker);
+    await tick(tester);
+
+    final approvals = find.widgetWithText(ListTile, 'Request approvals');
+    final panel = find.ancestor(
+      of: approvals,
+      matching: find.byType(MukaiGlassSurface),
+    );
+    expect(panel, findsOneWidget);
+    expect(tester.getTopLeft(panel).dy, lessThan(pickerTop));
+    expect(tester.testTextInput.isVisible, isTrue);
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Full access'),
+        matching: find.byIcon(Icons.check_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(approvals);
+    await tick(tester);
+    expect(panel, findsNothing);
+    expect(find.byTooltip('Request approvals'), findsOneWidget);
+    expect(focus.hasPrimaryFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('companion picker stays above the focused composer', (
