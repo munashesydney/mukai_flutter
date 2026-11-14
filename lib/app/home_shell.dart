@@ -420,36 +420,42 @@ class _HomeShellState extends State<HomeShell> {
         onOpenSource: _openNotificationSource,
       );
     } else {
+      // The minimalist home is the chat itself; its own header already
+      // carries the sidebar control, so the shell bar would double up.
+      final minimalHome =
+          _index == 0 &&
+          MukaiScope.appearanceOf(context).preferences.minimalism;
       body = SafeArea(
         bottom: false,
         child: Column(
           children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-              child: Row(
-                children: <Widget>[
-                  MukaiGlassPill.circle(
-                    child: MukaiIconButton(
-                      icon: Icons.view_sidebar_outlined,
-                      tooltip: 'Open sidebar',
-                      border: false,
-                      onTap: _openSidebar,
+            if (!minimalHome)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                child: Row(
+                  children: <Widget>[
+                    MukaiGlassPill.circle(
+                      child: MukaiIconButton(
+                        icon: Icons.view_sidebar_outlined,
+                        tooltip: 'Open sidebar',
+                        border: false,
+                        onTap: _openSidebar,
+                      ),
                     ),
-                  ),
-                  const Spacer(),
-                  const MukaiWordmark(size: 25),
-                  const Spacer(),
-                  MukaiGlassPill.circle(
-                    child: MukaiIconButton(
-                      icon: Icons.edit_square,
-                      tooltip: 'New chat',
-                      border: false,
-                      onTap: _newChat,
+                    const Spacer(),
+                    const MukaiWordmark(size: 25),
+                    const Spacer(),
+                    MukaiGlassPill.circle(
+                      child: MukaiIconButton(
+                        icon: Icons.edit_square,
+                        tooltip: 'New chat',
+                        border: false,
+                        onTap: _newChat,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
             Expanded(
               child: session.api != null && _index > 0
                   ? (_index == 5
@@ -482,7 +488,7 @@ class _HomeShellState extends State<HomeShell> {
                               _openBot(bot, fresh: true),
                           onOpenConversation: _openConversation,
                           onSwitchWorkspace: _switchWorkspace,
-                          onOpenSettings: () => _destination(4),
+                          onOpenSidebar: _openSidebar,
                         ),
                         if (session.api != null)
                           const SizedBox.shrink()
@@ -618,7 +624,7 @@ class _HomeShellState extends State<HomeShell> {
                         in <(int, String, IconData)>[
                           (
                             0,
-                            minimalism ? 'Bots' : 'Workspace',
+                            minimalism ? 'Chat' : 'Bots',
                             Icons.grid_view_rounded,
                           ),
                           (1, 'Pursuits', Icons.track_changes_rounded),

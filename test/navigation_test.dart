@@ -102,6 +102,8 @@ void main() {
     );
     await tester.tap(find.text('Nova'));
     await _tick(tester);
+    await tester.tap(find.text('Project notes cleanup').hitTestable().last);
+    await _tick(tester);
     expect(tester.takeException(), isNull);
     final field = find.widgetWithText(TextField, 'Message Nova…');
     await tester.tap(field);
@@ -118,7 +120,7 @@ void main() {
     tester.view.padding = const FakeViewPadding(top: 186, bottom: 102);
     tester.testTextInput.hide();
     await _tick(tester);
-    await _selectDestination(tester, 'Workspace');
+    await _selectDestination(tester, 'Bots');
     expect(tester.takeException(), isNull, reason: layoutDetails);
     await tester.tap(find.byTooltip('Appearance'));
     await _tick(tester);
@@ -130,7 +132,7 @@ void main() {
     'sidebar replaces bottom navigation and reaches each destination',
     (tester) async {
       await _openWorkspace(tester);
-      expect(find.text('A little momentum.'), findsOneWidget);
+      expect(find.byTooltip('Appearance'), findsOneWidget);
       expect(find.byType(BottomNavigationBar), findsNothing);
       expect(find.byType(NavigationBar), findsNothing);
       expect(
@@ -141,12 +143,12 @@ void main() {
       for (final label in <String>['Pursuits', 'Spaces', 'Tools', 'Settings']) {
         await _selectDestination(tester, label);
         expect(find.text(label), findsWidgets);
-        expect(find.text('A little momentum.'), findsNothing);
+        expect(find.byTooltip('Appearance'), findsNothing);
         expect(tester.takeException(), isNull);
       }
 
-      await _selectDestination(tester, 'Workspace');
-      expect(find.text('A little momentum.'), findsOneWidget);
+      await _selectDestination(tester, 'Bots');
+      expect(find.byTooltip('Appearance'), findsOneWidget);
       expect(find.text('Scout'), findsOneWidget);
       expect(find.text('Atlas'), findsOneWidget);
       expect(find.text('Nova'), findsOneWidget);
@@ -209,6 +211,8 @@ void main() {
       final session = await _openWorkspace(tester);
       await tester.ensureVisible(find.text('Nova'));
       await tester.tap(find.text('Nova'));
+      await _tick(tester);
+      await tester.tap(find.text('Project notes cleanup').hitTestable().last);
       await _tick(tester);
       expect(find.byType(ChatScreen), findsOneWidget);
       expect(session.bot.id, 'nova');
@@ -345,7 +349,7 @@ void main() {
         tester.getTopLeft(row('scout-notes')).dy,
         lessThan(tester.getTopLeft(row('scout-week')).dy),
       );
-      await tester.tap(find.text('Workspace').last);
+      await tester.tap(find.text('Bots').last);
       await _tick(tester);
       await openSidebar();
       expect(tile('scout-notes').selected, isFalse);

@@ -95,6 +95,16 @@ class _MukaiComposerState extends State<MukaiComposer> {
     _input.text = widget.initialDraft;
     _input.addListener(_onTextChanged);
     _focus.addListener(_onTextChanged);
+    if (widget.autofocus) {
+      // A cold start can mount this composer while the conversation is
+      // still loading (so TextField's one-shot autofocus is swallowed by
+      // the disabled field). Ask again once the frame has settled.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.enabled && !_focus.hasFocus) {
+          _focus.requestFocus();
+        }
+      });
+    }
   }
 
   @override

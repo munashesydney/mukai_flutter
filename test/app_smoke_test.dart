@@ -112,7 +112,8 @@ void main() {
     await tester.pump();
     await client.tick(500);
     expect(find.text('A little momentum.'), findsNothing);
-    expect(find.byTooltip('New conversation with Scout'), findsOneWidget);
+    // Minimalism ships on: sign-in lands directly in the chat composer.
+    expect(find.widgetWithText(TextField, 'Message Scout…'), findsOneWidget);
     expect(find.text('Connect'), findsNothing);
     expect(find.text('Setup code'), findsNothing);
     expect(find.text('Wake Mukai'), findsNothing);

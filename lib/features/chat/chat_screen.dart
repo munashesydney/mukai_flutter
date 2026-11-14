@@ -55,6 +55,7 @@ class ChatScreen extends StatefulWidget {
     this.joined = false,
     this.onJoin,
     this.onOpenSource,
+    this.slotAboveComposer,
   });
 
   final MukaiBot bot;
@@ -69,6 +70,10 @@ class ChatScreen extends StatefulWidget {
   final bool joined;
   final VoidCallback? onJoin;
   final Future<void> Function(NotificationSource)? onOpenSource;
+
+  /// Rendered directly above the composer/approval dock (the bot and
+  /// workspace pickers when the chat doubles as the minimalist home).
+  final Widget? slotAboveComposer;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -566,6 +571,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           label: Text(active ? 'Stop run' : 'Retry run'),
                         ),
+                      ?widget.slotAboveComposer,
                       if (chat && pending.isNotEmpty)
                         SafeArea(
                           top: false,

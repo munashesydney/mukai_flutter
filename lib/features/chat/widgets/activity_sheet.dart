@@ -177,8 +177,10 @@ class ActivitySheet extends StatelessWidget {
             child: Row(
               children: <Widget>[
                 GhostAvatar(
-                  mascot: bot.mascot,
-                  identity: bot.identity,
+                  // The orchestrator always wears the house face, whatever
+                  // mascot its workspace profile happens to use.
+                  mascot: bot.isMain ? Mascot.logo : bot.mascot,
+                  identity: bot.isMain ? BotIdentity.mukai : bot.identity,
                   size: 32,
                 ),
                 const SizedBox(width: 11),

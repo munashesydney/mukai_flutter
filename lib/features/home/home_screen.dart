@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import '../../app/scope.dart';
 import '../../domain/models.dart';
 import 'minimal_bot_home.dart';
-import 'workspace_home.dart';
+import 'minimal_chat_home.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
     required this.onOpenBot,
-    required this.onOpenSettings,
+    required this.onOpenSidebar,
     required this.onOpenConversation,
     this.onSwitchWorkspace,
     this.onNewConversation,
@@ -20,7 +20,7 @@ class HomeScreen extends StatelessWidget {
 
   final ValueChanged<MukaiBot> onOpenBot;
   final ValueChanged<MukaiBot>? onNewConversation;
-  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenSidebar;
   final ValueChanged<Conversation> onOpenConversation;
   final VoidCallback? onSwitchWorkspace;
 
@@ -31,15 +31,14 @@ class HomeScreen extends StatelessWidget {
     return ListenableBuilder(
       listenable: appearance,
       builder: (context, _) => appearance.preferences.minimalism
-          ? MinimalBotHome(
+          ? MinimalChatHome(
               key: ValueKey(session.workspace.id),
-              onOpenBot: onNewConversation ?? onOpenBot,
-              onOpenConversation: onOpenConversation,
+              onOpenSidebar: onOpenSidebar,
               onSwitchWorkspace: onSwitchWorkspace,
             )
-          : WorkspaceHome(
-              onOpenBot: onOpenBot,
-              onOpenSettings: onOpenSettings,
+          : MinimalBotHome(
+              key: ValueKey(session.workspace.id),
+              onOpenBot: onNewConversation ?? onOpenBot,
               onOpenConversation: onOpenConversation,
               onSwitchWorkspace: onSwitchWorkspace,
             ),
